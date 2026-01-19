@@ -1,91 +1,188 @@
+from __future__ import annotations
+
+import json
+import sqlite3
+from datetime import datetime, timezone
+from typing import Any, Dict, List, Optional
+
+
 class SQLiteStateStore:
-    def __init__(self, db_name):
-        self.connection = sqlite3.connect(db_name)
-        self.create_schema()
+    def __init__(self, path: str):
+        self.path = path
 
-    def create_schema(self):
-        cursor = self.connection.cursor()
-        cursor.execute('''CREATE TABLE IF NOT EXISTS issues (
-            id INTEGER PRIMARY KEY,
-            repo TEXT,
-            issue_number INTEGER,
-            issue_id TEXT,
-            issue_url TEXT,
-            title TEXT,
-            author_login TEXT,
-            state TEXT,
-            created_at DATETIME
-        , UNIQUE(repo, issue_number))''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS issue_analysis (
-            id INTEGER PRIMARY KEY,
-            issue_row_id INTEGER,
-            analysis TEXT,
-            model_info TEXT,
-            FOREIGN KEY(issue_row_id) REFERENCES issues(id)
-        )''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS notifications (
-            id INTEGER PRIMARY KEY,
-            issue_row_id INTEGER,
-            analysis_id INTEGER,
-            channel TEXT,
-            status TEXT,
-            error TEXT,
-            provider_response TEXT,
-            FOREIGN KEY(issue_row_id) REFERENCES issues(id),
-            FOREIGN KEY(analysis_id) REFERENCES issue_analysis(id)
-        )''')
-        cursor.execute('''CREATE TABLE IF NOT EXISTS run_log (
-            id INTEGER PRIMARY KEY,
-            run_time DATETIME
-        )''')
-        self.connection.commit()
+    def _conn(self) -> sqlite3.Connection:
+        conn = sqlite3.connect(self.path)
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys = ON;")
+        return conn
 
-    def has_issue(self, repo, issue_number):
-        cursor = self.connection.cursor()
-        cursor.execute('SELECT COUNT(1) FROM issues WHERE repo = ? AND issue_number = ?', (repo, issue_number))
-        return cursor.fetchone()[0] > 0
+    def init(self) -> None:
+        schema_sql = """
+        PRAGMA foreign_keys = ON;
 
-    def upsert_issue(self, repo, issue_number, issue_id, issue_url, title, author_login, state, created_at):
-        cursor = self.connection.cursor()
-        cursor.execute('''INSERT INTO issues (repo, issue_number, issue_id, issue_url, title, author_login, state, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(repo, issue_number) DO UPDATE SET issue_id=excluded.issue_id, issue_url=excluded.issue_url, title=excluded.title, author_login=excluded.author_login, state=excluded.state, created_at=excluded.created_at''',
-                      (repo, issue_number, issue_id, issue_url, title, author_login, state, created_at))
-        self.connection.commit()
-        return cursor.lastrowid
+        CREATE TABLE IF NOT EXISTS issues (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          repo TEXT NOT NULL,
+          issue_number INTEGER NOT NULL,
+          issue_id INTEGER NOT NULL,
+          issue_url TEXT NOT NULL,
+          title TEXT,
+          author_login TEXT,
+          state TEXT,
+          created_at TEXT,
+          first_seen_at TEXT NOT NULL,
+          last_seen_at TEXT NOT NULL,
+          UNIQUE(repo, issue_number)
+        );
 
-    def insert_issue_analysis(self, issue_row_id, analysis, model_info):
-        cursor = self.connection.cursor()
-        cursor.execute('INSERT INTO issue_analysis (issue_row_id, analysis, model_info) VALUES (?, ?, ?)', (issue_row_id, analysis, model_info))
-        self.connection.commit()
-        return cursor.lastrowid
+        CREATE TABLE IF NOT EXISTS issue_analysis (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          issue_row_id INTEGER NOT NULL,
+          created_at TEXT NOT NULL,
+          analysis_json TEXT NOT NULL,
+          model_info_json TEXT,
+          FOREIGN KEY(issue_row_id) REFERENCES issues(id) ON DELETE CASCADE
+        );
 
-    def insert_notification(self, issue_row_id, analysis_id, channel, status, error, provider_response):
-        cursor = self.connection.cursor()
-        cursor.execute('INSERT INTO notifications (issue_row_id, analysis_id, channel, status, error, provider_response) VALUES (?, ?, ?, ?, ?, ?)', (issue_row_id, analysis_id, channel, status, error, provider_response))
-        self.connection.commit()
-        return cursor.lastrowid
+        CREATE INDEX IF NOT EXISTS idx_issue_analysis_issue_row_id_created_at
+        ON issue_analysis(issue_row_id, created_at);
 
-    def log_run(self):
-        cursor = self.connection.cursor()
-        cursor.execute('INSERT INTO run_log (run_time) VALUES (?)', [datetime.utcnow()])
-        self.connection.commit()
+        CREATE TABLE IF NOT EXISTS notifications (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          issue_row_id INTEGER NOT NULL,
+          analysis_id INTEGER NOT NULL,
+          sent_at TEXT NOT NULL,
+          channel TEXT NOT NULL,
+          status TEXT NOT NULL,
+          error TEXT,
+          provider_response_json TEXT,
+          FOREIGN KEY(issue_row_id) REFERENCES issues(id) ON DELETE CASCADE,
+          FOREIGN KEY(analysis_id) REFERENCES issue_analysis(id) ON DELETE RESTRICT
+        );
 
-    def list_issues(self):
-        pass
+        CREATE INDEX IF NOT EXISTS idx_notifications_issue_row_id_sent_at
+        ON notifications(issue_row_id, sent_at);
 
-    def get_issue(self, issue_row_id):
-        pass
+        CREATE TABLE IF NOT EXISTS run_log (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          run_at TEXT NOT NULL,
+          repo TEXT NOT NULL,
+          status TEXT NOT NULL,
+          detail TEXT
+        );
+        """
+        with self._conn() as conn:
+            conn.executescript(schema_sql)
 
-    def list_issue_analyses(self, issue_row_id):
-        pass
+    # ---- dedup: repo + issue_number ----
+    def has_issue(self, repo: str, issue_number: int) -> bool:
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM issues WHERE repo = ? AND issue_number = ? LIMIT 1;",
+                (repo, issue_number),
+            ).fetchone()
+            return row is not None
 
-    def get_analysis(self, analysis_id):
-        pass
+    def upsert_issue(
+        self,
+        *,
+        repo: str,
+        issue_number: int,
+        issue_id: int,
+        issue_url: str,
+        title: str,
+        author_login: str,
+        state: str,
+        created_at: str,
+    ) -> int:
+        """
+        Issue 实体：不存 body（按 1A）。
+        以 (repo, issue_number) 唯一。
+        """
+        now = datetime.now(timezone.utc).isoformat()
+        with self._conn() as conn:
+            conn.execute(
+                """
+                INSERT OR IGNORE INTO issues
+                (repo, issue_number, issue_id, issue_url, title, author_login, state, created_at, first_seen_at, last_seen_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                """,
+                (repo, issue_number, issue_id, issue_url, title, author_login, state, created_at, now, now),
+            )
+            conn.execute(
+                """
+                UPDATE issues
+                SET issue_id = ?, issue_url = ?, title = ?, author_login = ?, state = ?, created_at = ?, last_seen_at = ?
+                WHERE repo = ? AND issue_number = ?;
+                """,
+                (issue_id, issue_url, title, author_login, state, created_at, now, repo, issue_number),
+            )
+            row = conn.execute(
+                "SELECT id FROM issues WHERE repo = ? AND issue_number = ? LIMIT 1;",
+                (repo, issue_number),
+            ).fetchone()
+            if not row:
+                raise RuntimeError("Failed to upsert issue")
+            return int(row["id"])
 
-    def list_notifications(self, issue_row_id):
-        pass
+    # ---- analysis snapshots ----
+    def insert_issue_analysis(
+        self,
+        *,
+        issue_row_id: int,
+        analysis: Dict[str, Any],  # 按 2A：不包含原始 title/body
+        model_info: Optional[Dict[str, Any]] = None,
+    ) -> int:
+        now = datetime.now(timezone.utc).isoformat()
+        with self._conn() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO issue_analysis (issue_row_id, created_at, analysis_json, model_info_json)
+                VALUES (?, ?, ?, ?);
+                """,
+                (
+                    issue_row_id,
+                    now,
+                    json.dumps(analysis, ensure_ascii=False),
+                    json.dumps(model_info, ensure_ascii=False) if model_info else None,
+                ),
+            )
+            return int(cur.lastrowid)
 
-    def get_notification(self, notification_id):
-        pass
+    # ---- notifications (each push event bound to analysis_id) ----
+    def insert_notification(
+        self,
+        *,
+        issue_row_id: int,
+        analysis_id: int,
+        channel: str,
+        status: str,
+        error: str = "",
+        provider_response: Optional[Dict[str, Any]] = None,
+    ) -> int:
+        now = datetime.now(timezone.utc).isoformat()
+        with self._conn() as conn:
+            cur = conn.execute(
+                """
+                INSERT INTO notifications
+                (issue_row_id, analysis_id, sent_at, channel, status, error, provider_response_json)
+                VALUES (?, ?, ?, ?, ?, ?, ?);
+                """,
+                (
+                    issue_row_id,
+                    analysis_id,
+                    now,
+                    channel,
+                    status,
+                    error or None,
+                    json.dumps(provider_response, ensure_ascii=False) if provider_response else None,
+                ),
+            )
+            return int(cur.lastrowid)
 
-    def list_runs(self):
-        pass
+    # ---- run log ----
+    def log_run(self, repo: str, status: str, detail: str = "") -> None:
+        now = datetime.now(timezone.utc).isoformat()
+        with self._conn() as conn:
+            conn.execute(
+                "INSERT INTO run_log (run_at, repo, status, detail) VALUES (?, ?, ?, ?);",
