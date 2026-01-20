@@ -1,50 +1,32 @@
 import os
+from dataclasses import dataclass, field
+from typing import Optional
 
-class Config:
-    def __init__(self):
-        self.github = self.GitHubConfig()
-        self.agent = self.AgentConfig()
-        self.notifications = self.NotificationsConfig()
-        self.validate_env_variables()
+@dataclass
+class GitHubConfig:
+    token: str = field(default_factory=lambda: os.getenv("GITHUB_TOKEN", ""))
+    repos: str = field(default_factory=lambda: os.getenv("REPOS", ""))
+    per_repo_fetch_limit: int = field(default_factory=lambda: int(os.getenv("PER_REPO_FETCH_LIMIT", 100)))  # Default to 100
 
-    class GitHubConfig:
-        per_repo_fetch_limit = os.getenv('PER_REPO_FETCH_LIMIT')
+@dataclass
+class AgentLimits:
+    max_new_issues_per_repo: int = field(default_factory=lambda: int(os.getenv("MAX_NEW_ISSUES_PER_REPO", 5)))  # Default to 5
+    max_new_issues_total: int = field(default_factory=lambda: int(os.getenv("MAX_NEW_ISSUES_TOTAL", 20)))  # Default to 20
+    max_body_chars: int = field(default_factory=lambda: int(os.getenv("MAX_BODY_CHARS", 1000)))  # Default to 1000
+    max_title_chars: int = field(default_factory=lambda: int(os.getenv("MAX_TITLE_CHARS", 80)))  # Default to 80
+    max_missing_items: int = field(default_factory=lambda: int(os.getenv("MAX_MISSING_ITEMS", 10)))  # Default to 10
 
-    class AgentConfig:
-        limits = {
-            'max_new_issues_per_repo': os.getenv('MAX_NEW_ISSUES_PER_REPO'),
-            'max_new_issues_total': os.getenv('MAX_NEW_ISSUES_TOTAL'),
-        }
-        text = {
-            'max_body_chars': os.getenv('MAX_BODY_CHARS'),
-            'max_title_chars': os.getenv('MAX_TITLE_CHARS'),
-        }
+dataclass
+class AppConfig:
+    sqlite_path: str = field(default_factory=lambda: os.getenv("SQLITE_PATH", "sqlite.db"))
+    llm_base_url: str = field(default_factory=lambda: os.getenv("LLM_BASE_URL", "http://example.com"))
+    llm_api_key: str = field(default_factory=lambda: os.getenv("LLM_API_KEY", ""))
+    llm_model: str = field(default_factory=lambda: os.getenv("LLM_MODEL", "default-model"))
+    webhook_url: str = field(default_factory=lambda: os.getenv("FEISHU_WEBHOOK_URL", ""))
 
-    class NotificationsConfig:
-        feishu = {
-            'message': {
-                'completeness': {
-                    'max_missing_items': os.getenv('MAX_MISSING_ITEMS')
-                }
-            }
-        }
-
-    def validate_env_variables(self):
-        required_vars = [
-            'GITHUB_TOKEN',
-            'REPOS',
-            'SQLITE_PATH',
-            'PER_REPO_FETCH_LIMIT',
-            'MAX_NEW_ISSUES_PER_REPO',
-            'MAX_NEW_ISSUES_TOTAL',
-            'MAX_BODY_CHARS',
-            'MAX_TITLE_CHARS',
-            'MAX_MISSING_ITEMS',
-            'FEISHU_WEBHOOK_URL',
-            'LLM_BASE_URL',
-            'LLM_API_KEY',
-            'LLM_MODEL'
-        ]
-        missing_vars = [var for var in required_vars if not os.getenv(var)]
-        if missing_vars:
-            raise EnvironmentError(f"Missing environment variables: {', '.join(missing_vars)}")
+def load_config_from_env() -> dict:
+    return {
+        "github": GitHubConfig(),
+        "agent": AgentLimits(),
+        "app": AppConfig(),
+    }
