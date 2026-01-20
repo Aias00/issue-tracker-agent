@@ -1,32 +1,130 @@
+from __future__ import annotations
+
 import os
-from dataclasses import dataclass, field
-from typing import Optional
+from dataclasses import dataclass
 
-@dataclass
+
+def _require(name: str) -> str:
+    v = os.getenv(name)
+    if v is None or not str(v).strip():
+        raise RuntimeError(f"Missing required env var: {name}")
+    return v.strip()
+
+
+def _get_int(name: str, default: int) -> int:
+    v = os.getenv(name)
+    if v is None or v == "":
+        return default
+    try:
+        return int(v)
+    except Exception as e:
+        raise RuntimeError(f"Invalid int env var {name}={v!r}") from e
+
+
+@dataclass(frozen=True)
 class GitHubConfig:
-    token: str = field(default_factory=lambda: os.getenv("GITHUB_TOKEN", ""))
-    repos: str = field(default_factory=lambda: os.getenv("REPOS", ""))
-    per_repo_fetch_limit: int = field(default_factory=lambda: int(os.getenv("PER_REPO_FETCH_LIMIT", 100)))  # Default to 100
+    token: str
+    repos: str
+    per_repo_fetch_limit: int
 
-@dataclass
-class AgentLimits:
-    max_new_issues_per_repo: int = field(default_factory=lambda: int(os.getenv("MAX_NEW_ISSUES_PER_REPO", 5)))  # Default to 5
-    max_new_issues_total: int = field(default_factory=lambda: int(os.getenv("MAX_NEW_ISSUES_TOTAL", 20)))  # Default to 20
-    max_body_chars: int = field(default_factory=lambda: int(os.getenv("MAX_BODY_CHARS", 1000)))  # Default to 1000
-    max_title_chars: int = field(default_factory=lambda: int(os.getenv("MAX_TITLE_CHARS", 80)))  # Default to 80
-    max_missing_items: int = field(default_factory=lambda: int(os.getenv("MAX_MISSING_ITEMS", 10)))  # Default to 10
 
-dataclass
+@dataclass(frozen=True)
+class AgentLimitsConfig:
+    max_new_issues_per_repo: int
+    max_new_issues_total: int
+
+
+@dataclass(frozen=True)
+class AgentTextConfig:
+    max_body_chars: int
+    max_title_chars: int
+
+
+@dataclass(frozen=True)
+class AgentConfig:
+    limits: AgentLimitsConfig
+    text: AgentTextConfig
+
+
+@dataclass(frozen=True)
+class FeishuCompletenessConfig:
+    max_missing_items: int
+
+
+@dataclass(frozen=True)
+class FeishuMessageConfig:
+    webhook_url: str
+    completeness: FeishuCompletenessConfig
+
+
+@dataclass(frozen=True)
+class FeishuConfig:
+    message: Feishu其他MessageConfig
+
+
+@dataclass(frozen=True)
+class NotificationsConfig:
+    feishu: FeishuConfig
+
+
+@dataclass(frozen=True)
+class LLMConfig:
+    base_url: str
+    api_key: str
+    model: str
+
+
+@dataclass(frozen=True)
 class AppConfig:
-    sqlite_path: str = field(default_factory=lambda: os.getenv("SQLITE_PATH", "sqlite.db"))
-    llm_base_url: str = field(default_factory=lambda: os.getenv("LLM_BASE_URL", "http://example.com"))
-    llm_api_key: str = field(default_factory=lambda: os.getenv("LLM_API_KEY", ""))
-    llm_model: str = field(default_factory=lambda: os.getenv("LLM_MODEL", "default-model"))
-    webhook_url: str = field(default_factory=lambda: os.getenv("FEISHU_WEBHOOK_URL", ""))
+    sqlite_path: str
 
-def load_config_from_env() -> dict:
-    return {
-        "github": GitHubConfig(),
-        "agent": AgentLimits(),
-        "app": AppConfig(),
-    }
+
+@dataclass(frozen=True)
+class Config:
+    github: GitHubConfig
+    agent: AgentConfig
+    notifications: NotificationsConfig
+    llm: LLMConfig
+    app: AppConfig
+
+
+def load_config_from_env() -> Config:
+    github_token = _require("GITHUB_TOKEN")
+    repos = _require("REPOS")
+    sqlite_path = _require("SQLITE_PATH")
+
+    llm_base_url = _require("LLM_BASE_URL")
+    llm_api_key = _require("LLM_API_KEY")
+    llm_model = _require("LLM_MODEL")
+
+    feishu_webhook_url = _require("FEISHU_WEBHOOK_URL")
+
+    per_repo_fetch_limit = _get_int("PER_REPO_FETCH_LIMIT", 100)
+    max_new_issues_per_repo = _get_int("MAX_NEW_ISSUES_PER_REPO", 5)
+    max_new_issues_total = _get_int("MAX_NEW_ISSUES_TOTAL", 20)
+    max_body_chars = _get_int("MAX_BODY_CHARS", 2000)
+    max_title_chars = _get_int("MAX_TITLE_CHARS", 100)
+    max_missing_items = _get_int("MAX_MISSING_ITEMS", 10)
+
+    return Config(
+        github=GitHubConfig(
+            token=github_token,
+            repos=repos,
+            per_repo_fetch_limit=per_repo_fetch_limit,
+        ),
+        agent=AgentConfig(
+            limits=AgentLimitsConfig(
+                max_new_issues_per_repo=max_new_issues_per_repo,
+                max_new_issues_total=max_new_issues_total,
+            ),
+            text=AgentTextConfig(
+                max_body_chars=max_body_chars,
+                max_title_chars=max_title_chars,
+            ),
+        ),
+        notifications=NotificationsConfig(
+            feishu=FeishuConfig(
+                message=FeishuMessageConfig(
+                    webhook_url=feishu_webhook_url,
+                    completeness=FeishuCompletenessConfig
+
