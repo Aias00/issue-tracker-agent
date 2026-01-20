@@ -96,7 +96,7 @@ class SQLiteStateStore:
         created_at: str,
     ) -> int:
         """
-        Issue 实体：不存 body（按 1A）。
+        Issue 实体：不存 body。
         以 (repo, issue_number) 唯一。
         """
         now = datetime.now(timezone.utc).isoformat()
@@ -130,7 +130,7 @@ class SQLiteStateStore:
         self,
         *,
         issue_row_id: int,
-        analysis: Dict[str, Any],  # 按 2A：不包含原始 title/body
+        analysis: Dict[str, Any],
         model_info: Optional[Dict[str, Any]] = None,
     ) -> int:
         now = datetime.now(timezone.utc).isoformat()
@@ -149,7 +149,7 @@ class SQLiteStateStore:
             )
             return int(cur.lastrowid)
 
-    # ---- notifications (each push event bound to analysis_id) ----
+    # ---- notifications ----
     def insert_notification(
         self,
         *,
@@ -181,8 +181,184 @@ class SQLiteStateStore:
             return int(cur.lastrowid)
 
     # ---- run log ----
-    def log_run(self, repo: str, status: str, detail: str = "") -> None:
+    def log_run(self, repo: str, status: str, detail: str = "") -> int:
         now = datetime.now(timezone.utc).isoformat()
         with self._conn() as conn:
-            conn.execute(
+            cur = conn.execute(
                 "INSERT INTO run_log (run_at, repo, status, detail) VALUES (?, ?, ?, ?);",
+                (now, repo, status, detail or None),
+            )
+            return int(cur.lastrowid)
+
+    @staticmethod
+    def _clamp_limit(limit: int, default: int = 100, max_limit: int = 500) -> int:
+        if limit is None:
+            return default
+        try:
+            limit_i = int(limit)
+        except Exception:
+            return default
+        if limit_i <= 0:
+            return default
+        return min(limit_i, max_limit)
+
+    @staticmethod
+    def _clamp_offset(offset: int) -> int:
+        if offset is None:
+            return 0
+        try:
+            offset_i = int(offset)
+        except Exception:
+            return 0
+        return max(offset_i, 0)
+
+    def list_issues(self, *, repo: Optional[str] = None, state: Optional[str] = None, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+        limit = self._clamp_limit(limit)
+        offset = self._clamp_offset(offset)
+        where = []
+        args: List[Any] = []
+        if repo:
+            where.append("repo = ?")
+            args.append(repo)
+        if state:
+            where.append("state = ?")
+            args.append(state)
+        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+        sql = f"""
+        SELECT id, repo, issue_number, issue_id, issue_url, title, author_login, state, created_at, first_seen_at, last_seen_at
+        FROM issues
+        {where_sql}
+        ORDER BY last_seen_at DESC, id DESC
+        LIMIT ? OFFSET ?;
+        """
+        with self._conn() as conn:
+            rows = conn.execute(sql, (*args, limit, offset)).fetchall()
+            return [dict(r) for r in rows]
+
+    def get_issue(self, issue_row_id: int) -> Optional[Dict[str, Any]]:
+        with self._conn() as conn:
+            row = conn.execute(
+                """
+                SELECT id, repo, issue_number, issue_id, issue_url, title, author_login, state, created_at, first_seen_at, last_seen_at
+                FROM issues
+                WHERE id = ?
+                LIMIT 1;
+                """,
+                (issue_row_id,),
+            ).fetchone()
+            return dict(row) if row else None
+
+    def list_issue_analyses(self, *, issue_row_id: int, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+        limit = self._clamp_limit(limit)
+        offset = self._clamp_offset(offset)
+        with self._conn() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, issue_row_id, created_at, analysis_json, model_info_json
+                FROM issue_analysis
+                WHERE issue_row_id = ?
+                ORDER BY created_at DESC, id DESC
+                LIMIT ? OFFSET ?;
+                """,
+                (issue_row_id, limit, offset),
+            ).fetchall()
+            out: List[Dict[str, Any]] = []
+            for r in rows:
+                d = dict(r)
+                d["analysis"] = json.loads(d.pop("analysis_json"))
+                mi = d.pop("model_info_json")
+                d["model_info"] = json.loads(mi) if mi else None
+                out.append(d)
+            return out
+
+    def get_analysis(self, analysis_id: int) -> Optional[Dict[str, Any]]:
+        with self._conn() as conn:
+            row = conn.execute(
+                """
+                SELECT id, issue_row_id, created_at, analysis_json, model_info_json
+                FROM issue_analysis
+                WHERE id = ?
+                LIMIT 1;
+                """,
+                (analysis_id,),
+            ).fetchone()
+            if not row:
+                return None
+            d = dict(row)
+            d["analysis"] = json.loads(d.pop("analysis_json"))
+            mi = d.pop("model_info_json")
+            d["model_info"] = json.loads(mi) if mi else None
+            return d
+
+    def list_notifications(self, *, issue_row_id: Optional[int] = None, status: Optional[str] = None, channel: Optional[str] = None, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+        limit = self._clamp_limit(limit)
+        offset = self._clamp_offset(offset)
+        where = []
+        args: List[Any] = []
+        if issue_row_id is not None:
+            where.append("issue_row_id = ?")
+            args.append(issue_row_id)
+        if status:
+            where.append("status = ?")
+            args.append(status)
+        if channel:
+            where.append("channel = ?")
+            args.append(channel)
+        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+        sql = f"""
+        SELECT id, issue_row_id, analysis_id, sent_at, channel, status, error, provider_response_json
+        FROM notifications
+        {where_sql}
+        ORDER BY sent_at DESC, id DESC
+        LIMIT ? OFFSET ?;
+        """
+        with self._conn() as conn:
+            rows = conn.execute(sql, (*args, limit, offset)).fetchall()
+            out: List[Dict[str, Any]] = []
+            for r in rows:
+                d = dict(r)
+                pr = d.pop("provider_response_json")
+                d["provider_response"] = json.loads(pr) if pr else None
+                out.append(d)
+            return out
+
+    def get_notification(self, notification_id: int) -> Optional[Dict[str, Any]]:
+        with self._conn() as conn:
+            row = conn.execute(
+                """
+                SELECT id, issue_row_id, analysis_id, sent_at, channel, status, error, provider_response_json
+                FROM notifications
+                WHERE id = ?
+                LIMIT 1;
+                """,
+                (notification_id,),
+            ).fetchone()
+            if not row:
+                return None
+            d = dict(row)
+            pr = d.pop("provider_response_json")
+            d["provider_response"] = json.loads(pr) if pr else None
+            return d
+
+    def list_runs(self, *, repo: Optional[str] = None, status: Optional[str] = None, limit: int = 100, offset: int = 0) -> List[Dict[str, Any]]:
+        limit = self._clamp_limit(limit)
+        offset = self._clamp_offset(offset)
+        where = []
+        args: List[Any] = []
+        if repo:
+            where.append("repo = ?")
+            args.append(repo)
+        if status:
+            where.append("status = ?")
+            args.append(status)
+        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+        sql = f"""
+        SELECT id, run_at, repo, status, detail
+        FROM run_log
+        {where_sql}
+        ORDER BY run_at DESC, id DESC
+        LIMIT ? OFFSET ?;
+        """
+        with self._conn() as conn:
+            rows = conn.execute(sql, (*args, limit, offset)).fetchall()
+            return [dict(r) for r in rows]
