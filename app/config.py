@@ -1,49 +1,50 @@
 import os
-from dataclasses import dataclass, field
-from typing import Dict
 
-@dataclass
-class GitHubConfig:
-    token: str
-    repos: str
-
-@dataclass
-class AgentLimits:
-    per_repo_fetch_limit: int = field(default=100)
-    max_new_issues_per_repo: int = field(default=5)
-    max_new_issues_total: int = field(default=20)
-    max_body_chars: int = field(default=2000)
-    max_title_chars: int = field(default=100)
-    max_missing_items: int = field(default=10)
-
-@dataclass
-class Notifications:
-    feishu_message: str
-
-@dataclass
 class Config:
-    github: GitHubConfig
-    agent_limits: AgentLimits
-    notifications: Notifications
+    def __init__(self):
+        self.github = self.GitHubConfig()
+        self.agent = self.AgentConfig()
+        self.notifications = self.NotificationsConfig()
+        self.validate_env_variables()
 
+    class GitHubConfig:
+        per_repo_fetch_limit = os.getenv('PER_REPO_FETCH_LIMIT')
 
-def load_config_from_env() -> Config:
-    github_config = GitHubConfig(
-        token=os.getenv('GITHUB_TOKEN'),
-        repos=os.getenv('REPOS')
-    )
+    class AgentConfig:
+        limits = {
+            'max_new_issues_per_repo': os.getenv('MAX_NEW_ISSUES_PER_REPO'),
+            'max_new_issues_total': os.getenv('MAX_NEW_ISSUES_TOTAL'),
+        }
+        text = {
+            'max_body_chars': os.getenv('MAX_BODY_CHARS'),
+            'max_title_chars': os.getenv('MAX_TITLE_CHARS'),
+        }
 
-    agent_limits = AgentLimits(
-        per_repo_fetch_limit=int(os.getenv('PER_REPO_FETCH_LIMIT', 100)),
-        max_new_issues_per_repo=int(os.getenv('MAX_NEW_ISSUES_PER_REPO', 5)),
-        max_new_issues_total=int(os.getenv('MAX_NEW_ISSUES_TOTAL', 20)),
-        max_body_chars=int(os.getenv('MAX_BODY_CHARS', 2000)),
-        max_title_chars=int(os.getenv('MAX_TITLE_CHARS', 100)),
-        max_missing_items=int(os.getenv('MAX_MISSING_ITEMS', 10))
-    )
+    class NotificationsConfig:
+        feishu = {
+            'message': {
+                'completeness': {
+                    'max_missing_items': os.getenv('MAX_MISSING_ITEMS')
+                }
+            }
+        }
 
-    notifications = Notifications(
-        feishu_message=os.getenv('FEISHU_WEBHOOK_URL')
-    )
-
-    return Config(github=github_config, agent_limits=agent_limits, notifications=notifications)
+    def validate_env_variables(self):
+        required_vars = [
+            'GITHUB_TOKEN',
+            'REPOS',
+            'SQLITE_PATH',
+            'PER_REPO_FETCH_LIMIT',
+            'MAX_NEW_ISSUES_PER_REPO',
+            'MAX_NEW_ISSUES_TOTAL',
+            'MAX_BODY_CHARS',
+            'MAX_TITLE_CHARS',
+            'MAX_MISSING_ITEMS',
+            'FEISHU_WEBHOOK_URL',
+            'LLM_BASE_URL',
+            'LLM_API_KEY',
+            'LLM_MODEL'
+        ]
+        missing_vars = [var for var in required_vars if not os.getenv(var)]
+        if missing_vars:
+            raise EnvironmentError(f"Missing environment variables: {', '.join(missing_vars)}")
