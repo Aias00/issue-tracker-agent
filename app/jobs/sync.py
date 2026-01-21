@@ -4,7 +4,8 @@ from dataclasses import dataclass
 
 from app.agent.graph import run_issue_agent
 from app.agent.preprocess import clip_text
-from app.llm.factory import LLMFactory
+
+from app.config import Config
 from app.notifiers.feishu.renderer import render_card_template_b
 from app.storage.sqlite_store import SQLiteStateStore
 
@@ -17,10 +18,9 @@ class Budget:
 def process_repo_with_budget(
     *,
     repo: str,
-    cfg,
+    cfg: Config,
     store: SQLiteStateStore,
     gh,
-    llm_factory: LLMFactory,
     feishu,
     budget: Budget,
 ) -> int:
@@ -70,7 +70,7 @@ def process_repo_with_budget(
             body = clip_text(issue.body or "", max_body)
 
             result = run_issue_agent(
-                llm_factory=llm_factory,
+                cfg=cfg,
                 repo=repo,
                 title=title,
                 body=body,
@@ -91,11 +91,15 @@ def process_repo_with_budget(
 
             try:
                 resp = feishu.send_card(card)
+                status = "sent"
+                if isinstance(resp, dict) and resp.get("status") == "skipped":
+                    status = "skipped"
+                
                 store.insert_notification(
                     issue_row_id=issue_row_id,
                     analysis_id=analysis_id,
                     channel="feishu",
-                    status="sent",
+                    status=status,
                     provider_response=resp if isinstance(resp, dict) else None,
                 )
             except Exception as send_err:

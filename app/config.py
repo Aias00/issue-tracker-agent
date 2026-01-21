@@ -4,6 +4,11 @@ import os
 from dataclasses import dataclass
 
 
+from dotenv import load_dotenv
+
+# Load .env file immediately
+load_dotenv()
+
 def _require(name: str) -> str:
     v = os.getenv(name)
     if v is None or not str(v).strip():
@@ -59,7 +64,7 @@ class FeishuMessageConfig:
 
 @dataclass(frozen=True)
 class FeishuConfig:
-    message: Feishu其他MessageConfig
+    message: FeishuMessageConfig
 
 
 @dataclass(frozen=True)
@@ -89,15 +94,17 @@ class Config:
 
 
 def load_config_from_env() -> Config:
-    github_token = _require("GITHUB_TOKEN")
-    repos = _require("REPOS")
-    sqlite_path = _require("SQLITE_PATH")
+    github_token = os.getenv("GITHUB_TOKEN", "")
+    repos = os.getenv("REPOS", "")
+    sqlite_path = os.getenv("SQLITE_PATH", "data/issue_tracker.db")
+    if not sqlite_path:  # Handle empty string
+        sqlite_path = "data/issue_tracker.db"
 
-    llm_base_url = _require("LLM_BASE_URL")
-    llm_api_key = _require("LLM_API_KEY")
-    llm_model = _require("LLM_MODEL")
+    llm_base_url = os.getenv("LLM_BASE_URL", "")
+    llm_api_key = os.getenv("LLM_API_KEY", "")
+    llm_model = os.getenv("LLM_MODEL", "")
 
-    feishu_webhook_url = _require("FEISHU_WEBHOOK_URL")
+    feishu_webhook_url = os.getenv("FEISHU_WEBHOOK_URL", "")
 
     per_repo_fetch_limit = _get_int("PER_REPO_FETCH_LIMIT", 100)
     max_new_issues_per_repo = _get_int("MAX_NEW_ISSUES_PER_REPO", 5)
@@ -126,5 +133,19 @@ def load_config_from_env() -> Config:
             feishu=FeishuConfig(
                 message=FeishuMessageConfig(
                     webhook_url=feishu_webhook_url,
-                    completeness=FeishuCompletenessConfig
-
+                    completeness=FeishuCompletenessConfig(
+                        max_missing_items=max_missing_items,
+                    ),
+                ),
+            ),
+        ),
+        llm=LLMConfig(
+            base_url=llm_base_url,
+            api_key=llm_api_key,
+            model=llm_model,
+        ),
+        app=AppConfig(
+            sqlite_path=sqlite_path,
+        ),
+    )
+

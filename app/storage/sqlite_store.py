@@ -6,9 +6,15 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 
+import os
+
 class SQLiteStateStore:
     def __init__(self, path: str):
         self.path = path
+        # Ensure parent directory exists
+        db_dir = os.path.dirname(os.path.abspath(path))
+        if db_dir and not os.path.exists(db_dir):
+            os.makedirs(db_dir)
 
     def _conn(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.path)
@@ -71,8 +77,16 @@ class SQLiteStateStore:
           detail TEXT
         );
         """
-        with self._conn() as conn:
+        conn = self._conn()
+        try:
             conn.executescript(schema_sql)
+            conn.commit()
+            print(f"[SQLiteStateStore] Database initialized at {self.path}")
+        except Exception as e:
+            print(f"[SQLiteStateStore] Failed to initialize database: {e}")
+            raise
+        finally:
+            conn.close()
 
     # ---- dedup: repo + issue_number ----
     def has_issue(self, repo: str, issue_number: int) -> bool:
@@ -228,7 +242,7 @@ class SQLiteStateStore:
         SELECT id, repo, issue_number, issue_id, issue_url, title, author_login, state, created_at, first_seen_at, last_seen_at
         FROM issues
         {where_sql}
-        ORDER BY last_seen_at DESC, id DESC
+        ORDER BY created_at DESC, id DESC
         LIMIT ? OFFSET ?;
         """
         with self._conn() as conn:

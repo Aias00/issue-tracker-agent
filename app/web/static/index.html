@@ -1,0 +1,962 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Issue Tracker Agent</title>
+    <style>
+        :root {
+            --primary: #10b981;
+            --primary-light: #34d399;
+            --bg-dark: #0f172a;
+            --bg-darker: #020617;
+            --surface: #1e293b;
+            --surface-light: #334155;
+            --text: #f1f5f9;
+            --text-muted: #94a3b8;
+            --border: #334155;
+            --accent: #3b82f6;
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html,
+        body {
+            height: 100%;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
+            background: var(--bg-darker);
+            /* Match darkest tone */
+            color: var(--text);
+            display: grid;
+            grid-template-columns: 280px 1fr;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .sidebar {
+            background: linear-gradient(180deg, var(--bg-darker) 0%, var(--surface) 100%);
+            border-right: 1px solid var(--border);
+            padding: 2rem 0;
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+            overflow-y: auto;
+            height: 100%;
+            /* Ensure full height */
+        }
+
+        .sidebar h3 {
+            padding: 0 1.5rem;
+            margin-bottom: 1rem;
+            font-size: 1.5rem;
+            font-weight: 700;
+            background: linear-gradient(135deg, var(--primary) 0%, var(--accent) 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .nav-item {
+            padding: 0.875rem 1.5rem;
+            margin: 0 0.75rem;
+            border-radius: 12px;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            font-weight: 500;
+            color: var(--text-muted);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .nav-item::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0;
+            width: 4px;
+            height: 100%;
+            background: linear-gradient(180deg, var(--primary) 0%, var(--accent) 100%);
+            transform: scaleY(0);
+            transition: transform 0.3s ease;
+        }
+
+        .nav-item:hover {
+            background: rgba(16, 185, 129, 0.1);
+            color: var(--primary-light);
+            transform: translateX(4px);
+        }
+
+        .nav-item.active {
+            background: rgba(16, 185, 129, 0.15);
+            color: var(--primary);
+            font-weight: 600;
+        }
+
+        .nav-item.active::before {
+            transform: scaleY(1);
+        }
+
+        .main {
+            padding: 1.5rem;
+            overflow-y: auto;
+            background: var(--bg-dark);
+        }
+
+        .panel {
+            background: var(--surface);
+            border-radius: 16px;
+            border: 1px solid var(--border);
+            padding: 2rem;
+            max-width: 1400px;
+            margin: 0 auto;
+            display: none;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2);
+        }
+
+        .panel.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        h2 {
+            margin-top: 0;
+            font-size: 1.875rem;
+            font-weight: 700;
+            color: var(--text);
+            margin-bottom: 0.5rem;
+        }
+
+        h3 {
+            font-size: 1.25rem;
+            margin-top: 2rem;
+            margin-bottom: 1rem;
+            color: var(--text);
+        }
+
+        p {
+            color: var(--text-muted);
+            margin-bottom: 1.5rem;
+        }
+
+        /* Form Styles */
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+            font-size: 0.875rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        input,
+        textarea,
+        select {
+            width: 100%;
+            padding: 0.875rem 1rem;
+            border: 1.5px solid var(--border);
+            border-radius: 10px;
+            font-family: inherit;
+            background: var(--bg-darker);
+            color: var(--text);
+            transition: all 0.3s ease;
+            font-size: 0.95rem;
+        }
+
+        input:focus,
+        textarea:focus,
+        select:focus {
+            outline: none;
+            border-color: var(--primary);
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.1);
+            background: var(--surface);
+        }
+
+        .help-text {
+            font-size: 0.8rem;
+            color: var(--text-muted);
+            margin-top: 0.375rem;
+        }
+
+        .btn {
+            background: linear-gradient(135deg, var(--primary) 0%, var(--primary-light) 100%);
+            color: white;
+            border: none;
+            padding: 0.875rem 1.75rem;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.95rem;
+            transition: all 0.3s ease;
+            box-shadow: 0 4px 6px -1px rgba(16, 185, 129, 0.3);
+        }
+
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgba(16, 185, 129, 0.4);
+        }
+
+        .btn:active {
+            transform: translateY(0);
+        }
+
+        .btn-secondary {
+            background: var(--surface-light);
+            color: var(--text);
+            box-shadow: none;
+            margin-right: 0.5rem;
+        }
+
+        .btn-secondary:hover {
+            background: var(--border);
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+        }
+
+        /* Run Panel */
+        .run-status {
+            padding: 1rem;
+            background: var(--bg-darker);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            margin-top: 1rem;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            font-size: 0.875rem;
+            color: var(--primary-light);
+        }
+
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: var(--bg-darker);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: var(--surface-light);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: var(--border);
+        }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mermaid/10.9.0/mermaid.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.1/marked.min.js"></script>
+    <style>
+        /* Markdown Styles */
+        .markdown-body {
+            color: var(--text);
+            font-size: 0.95rem;
+            line-height: 1.6;
+        }
+
+        .markdown-body h1,
+        .markdown-body h2,
+        .markdown-body h3,
+        .markdown-body h4 {
+            color: var(--primary-light);
+            margin-top: 1.5rem;
+            margin-bottom: 0.75rem;
+        }
+
+        .markdown-body p {
+            margin-bottom: 1rem;
+        }
+
+        .markdown-body ul,
+        .markdown-body ol {
+            padding-left: 1.5rem;
+            margin-bottom: 1rem;
+        }
+
+        .markdown-body li {
+            margin-bottom: 0.5rem;
+        }
+
+        .markdown-body code {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-family: monospace;
+            color: var(--accent);
+        }
+
+        .markdown-body pre {
+            background: rgba(0, 0, 0, 0.3);
+            padding: 1rem;
+            border-radius: 8px;
+            overflow-x: auto;
+            margin-bottom: 1rem;
+        }
+
+        .markdown-body pre code {
+            background: none;
+            color: var(--text);
+            padding: 0;
+        }
+
+        .markdown-body blockquote {
+            border-left: 4px solid var(--border);
+            padding-left: 1rem;
+            margin-left: 0;
+            color: var(--text-muted);
+        }
+    </style>
+</head>
+
+<body>
+    <div class="sidebar">
+        <h3>Issue Tracker</h3>
+        <div class="nav-item active" onclick="switchTab('run')" id="nav-run">Run & Monitor</div>
+        <div class="nav-item" onclick="switchTab('issues')" id="nav-issues">Issues</div>
+        <div class="nav-item" onclick="switchTab('graph')" id="nav-graph">Graph Editor</div>
+        <div class="nav-item" onclick="switchTab('config')" id="nav-config">Configuration</div>
+    </div>
+
+    <div class="main">
+        <!-- Graph Editor Panel -->
+        <div id="panel-graph" class="panel" style="max-width: 1200px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                <h2>Graph DSL Editor</h2>
+                <div>
+                    <button class="btn btn-secondary" onclick="loadGraphConfig()">Reset/Reload</button>
+                    <button class="btn" onclick="saveGraphConfig()">Save Changes</button>
+                </div>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; height: 600px;">
+                <!-- Editor -->
+                <div style="display: flex; flex-direction: column;">
+                    <label style="margin-bottom: 0.5rem;">JSON Configuration</label>
+                    <div id="monaco-container"
+                        style="flex: 1; border: 1px solid var(--border); border-radius: 8px; overflow: hidden;"></div>
+                </div>
+
+                <!-- Preview -->
+                <div style="display: flex; flex-direction: column;">
+                    <label style="margin-bottom: 0.5rem;">Visual Preview (Mermaid)</label>
+                    <div id="mermaid-preview"
+                        style="flex: 1; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; overflow: auto; display: flex; align-items: center; justify-content: center;">
+                        Loading...
+                    </div>
+                </div>
+            </div>
+        </div>
+        <!-- Run Panel -->
+        <div id="panel-run" class="panel active">
+            <h2>Manual Trigger</h2>
+            <p>Trigger the issue processing workflow manually.</p>
+            <button class="btn" onclick="triggerRun()">Run Now</button>
+
+            <div id="run-output" class="run-status" style="display:none"></div>
+
+            <h3>Processing History</h3>
+            <div id="run-history">Loading...</div>
+        </div>
+
+        <!-- Issues Panel -->
+        <div id="panel-issues" class="panel">
+            <h2>Collected Issues</h2>
+            <div style="margin-bottom: 1rem;">
+                <label>Filter by Repo:</label>
+                <input type="text" id="filter-repo" placeholder="e.g., owner/repo"
+                    style="width: 300px; margin-right: 1rem;">
+                <button class="btn" onclick="loadIssues()">Refresh</button>
+            </div>
+            <div id="issues-list">Loading...</div>
+        </div>
+
+        <!-- Config Panel -->
+        <div id="panel-config" class="panel">
+            <h2>Configuration</h2>
+            <p>Update environment variables. Changes are applied immediately and persisted to .env.</p>
+            <form id="config-form" onsubmit="saveConfig(event)">
+                <div id="config-fields">Loading...</div>
+                <div style="margin-top: 2rem;">
+                    <button type="submit" class="btn">Save & Reload</button>
+                    <button type="button" class="btn btn-secondary" onclick="loadConfig()">Reset</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script>
+        // Global state for preserving filter
+        let lastFilterRepo = '';
+
+        // Tab Switching
+        function switchTab(tab) {
+            document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('.panel').forEach(el => el.classList.remove('active'));
+
+            event.target.classList.add('active');
+            document.getElementById(`panel-${tab}`).classList.add('active');
+
+            if (tab === 'config') loadConfig();
+            if (tab === 'run') loadRuns();
+            if (tab === 'issues') loadIssues();
+        }
+
+        // --- Issues Logic ---
+        function formatDateTime(dateString) {
+            if (!dateString) return 'N/A';
+            const date = new Date(dateString);
+            const year = date.getFullYear();
+            const month = String(date.getMonth() + 1).padStart(2, '0');
+            const day = String(date.getDate()).padStart(2, '0');
+            const hours = String(date.getHours()).padStart(2, '0');
+            const minutes = String(date.getMinutes()).padStart(2, '0');
+            const seconds = String(date.getSeconds()).padStart(2, '0');
+            return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+        }
+
+        function normalizeRepoInput(input) {
+            input = input.trim();
+            // Extract owner/repo from GitHub URL
+            const match = input.match(/github\.com\/([^\/]+)\/([^\/\.]+)/);
+            if (match) {
+                return `${match[1]}/${match[2]}`;
+            }
+            return input;
+        }
+
+        async function loadIssues() {
+            // Show filter controls when returning to list
+            const filterControls = document.querySelector('#panel-issues > div[style*="margin-bottom"]');
+            if (filterControls) {
+                filterControls.style.display = 'block';
+            }
+
+            const repoInput = document.getElementById('filter-repo');
+            const repo = normalizeRepoInput(repoInput?.value || '');
+            const container = document.getElementById('issues-list');
+
+            // Save current filter state
+            lastFilterRepo = repoInput?.value || '';
+
+            container.innerHTML = 'Loading...';
+
+            try {
+                const params = new URLSearchParams();
+                if (repo) params.append('repo', repo);
+
+                const res = await fetch(`/issues?${params}`);
+                const data = await res.json();
+
+                if (data.issues.length === 0) {
+                    container.innerHTML = '<p>No issues found. Run a sync first.</p>';
+                    return;
+                }
+
+                container.innerHTML = data.issues.map(issue => `
+                    <div style="padding: 1rem; border: 1px solid var(--border); border-radius: 12px; margin-bottom: 1rem; background: var(--surface);">
+                        <div style="display: flex; justify-content: space-between; align-items: start;">
+                            <div style="flex: 1;">
+                                <h3 style="margin: 0 0 0.5rem 0;">
+                                    <a href="${issue.issue_url}" target="_blank" style="color: var(--primary); text-decoration: none;">
+                                        ${issue.title}
+                                    </a>
+                                </h3>
+                                <div style="font-size: 0.85rem; color: var(--text-muted);">
+                                    <span><strong>Repo:</strong> ${issue.repo}</span> | 
+                                    <span><strong>Author:</strong> ${issue.author_login}</span> | 
+                                    <span><strong>State:</strong> ${issue.state}</span>
+                                </div>
+                                <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 0.25rem;">
+                                    Created: ${formatDateTime(issue.created_at)}
+                                </div>
+                            </div>
+                            <button class="btn" style="padding: 0.5rem 1rem; font-size: 0.85rem;" 
+                                    onclick="viewIssueDetail(${issue.id})">
+                                View Details
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                container.innerHTML = '<p>Error loading issues: ' + e + '</p>';
+            }
+        }
+
+        async function viewIssueDetail(issueId) {
+            // Hide filter controls in detail view
+            const filterControls = document.querySelector('#panel-issues > div[style*="margin-bottom"]');
+            if (filterControls) {
+                filterControls.style.display = 'none';
+            }
+
+            const container = document.getElementById('issues-list');
+            container.innerHTML = 'Loading details...';
+
+            try {
+                const [issueRes, analysesRes] = await Promise.all([
+                    fetch(`/issues/${issueId}`),
+                    fetch(`/issues/${issueId}/analyses`)
+                ]);
+
+                const issueData = await issueRes.json();
+                const analysesData = await analysesRes.json();
+
+                const issue = issueData.issue;
+                const analyses = analysesData.analyses;
+
+                let analysisHtml = '';
+                if (analyses.length > 0) {
+                    const latest = analyses[0];
+                    const analysis = latest.analysis;
+
+                    console.log('Analysis data:', analysis); // Debug log
+
+                    analysisHtml = `
+                        <div style="background: var(--surface-light); padding: 1.5rem; border-radius: 12px; margin-top: 1rem; border: 1px solid var(--border);">
+                            <h3 style="margin-top: 0; color: var(--primary);">AI Analysis</h3>
+                            <div style="margin-bottom: 0.75rem; color: var(--text);">
+                                <strong style="color: var(--text-muted);">Summary:</strong> 
+                                <span style="color: var(--text);">${analysis.summary || 'N/A'}</span>
+                            </div>
+                            <div style="margin-bottom: 0.75rem; color: var(--text);">
+                                <strong style="color: var(--text-muted);">Priority:</strong> 
+                                <span style="color: var(--primary-light);">${analysis.priority || 'N/A'}</span>
+                            </div>
+                            <div style="margin-bottom: 0.75rem; color: var(--text);">
+                                <strong style="color: var(--text-muted);">Category:</strong> 
+                                <span style="color: var(--accent);">${analysis.category || 'N/A'}</span>
+                            </div>
+                            ${analysis.key_points ? `
+                                <div style="color: var(--text);">
+                                    <strong style="color: var(--text-muted);">Key Points:</strong>
+                                    <ul style="margin-top: 0.5rem; padding-left: 1.5rem; color: var(--text);">
+                                        ${analysis.key_points.map(p => `<li style="margin-bottom: 0.25rem;">${p}</li>`).join('')}
+                                    </ul>
+                                </div>
+                            ` : ''}
+                            ${analysis.bug_root_cause ? `
+                                <div style="margin-top: 1rem; color: var(--text);">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                        <strong style="color: var(--text-muted);">Bug Root Cause Analysis:</strong>
+                                        <div>
+                                            <button class="btn btn-secondary" onclick="copyBugAnalysis(${issue.id})" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; margin-right: 0.5rem;">
+                                                📋 Copy
+                                            </button>
+                                            <button class="btn btn-secondary" onclick="downloadBugAnalysis(${issue.id}, '${issue.title.replace(/'/g, "\\'")}',' ${issue.repo}')" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">
+                                                💾 Download
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div id="bug-analysis-${issue.id}" class="markdown-body" style="background: var(--bg-darker); padding: 1.5rem; border-radius: 8px; border: 1px solid var(--border); overflow-x: auto;">
+                                        ${(window.marked && window.marked.parse)
+                                ? marked.parse(analysis.bug_root_cause)
+                                : `<pre style="white-space: pre-wrap; font-family: monospace; color: var(--text); margin: 0;">${analysis.bug_root_cause}</pre>`}
+                                    </div>
+                                    <div id="bug-analysis-raw-${issue.id}" style="display: none;">${analysis.bug_root_cause}</div>
+                                </div>
+                            ` : ''}
+                            ${analysis.architecture_plan ? `
+                                <div style="margin-top: 1rem; color: var(--text);">
+                                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 0.5rem;">
+                                        <strong style="color: var(--text-muted);">Architecture Plan:</strong>
+                                        <div>
+                                            <button class="btn btn-secondary" onclick="copyArchitecturePlan(${issue.id})" style="padding: 0.4rem 0.8rem; font-size: 0.85rem; margin-right: 0.5rem;">
+                                                📋 Copy
+                                            </button>
+                                            <button class="btn btn-secondary" onclick="downloadArchitecturePlan(${issue.id}, '${issue.title.replace(/'/g, "\\'")}',' ${issue.repo}')" style="padding: 0.4rem 0.8rem; font-size: 0.85rem;">
+                                                💾 Download
+                                            </button>
+                                        </div>
+                                    </div>
+                                    <div class="markdown-body" style="background: var(--bg-darker); padding: 1.5rem; border-radius: 8px; border: 1px solid var(--border); overflow-x: auto;">
+                                        ${(window.marked && window.marked.parse)
+                                ? marked.parse(analysis.architecture_plan)
+                                : `<pre style="white-space: pre-wrap; font-family: monospace; color: var(--text); margin: 0;">${analysis.architecture_plan}</pre>`}
+                                    </div>
+                                    <div id="arch-plan-raw-${issue.id}" style="display: none;">${analysis.architecture_plan}</div>
+                                </div>
+                            ` : ''}
+                            <div style="font-size: 0.8rem; color: var(--text-muted); margin-top: 1rem; padding-top: 0.75rem; border-top: 1px solid var(--border);">
+                                Analyzed at: ${formatDateTime(latest.created_at)} <br>
+                                Model: ${latest.model_info?.model || 'Unknown'} (${latest.model_info?.execution_mode || 'Legacy'})
+                            </div>
+                        </div>
+                    `;
+                } else {
+                    analysisHtml = '<p style="color: var(--text-muted); margin-top: 1rem;">No analysis available.</p>';
+                }
+
+                container.innerHTML = `
+                    <button class="btn btn-secondary" onclick="loadIssues()" style="margin-bottom: 1rem;">← Back to List</button>
+                    <div style="border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; background: var(--surface);">
+                        <h2 style="margin-top: 0;">
+                            <a href="${issue.issue_url}" target="_blank" style="color: var(--primary);">
+                                ${issue.title}
+                            </a>
+                        </h2>
+                        <div style="margin-bottom: 1rem; color: var(--text-muted);">
+                            <div><strong>Repo:</strong> ${issue.repo}</div>
+                            <div><strong>Author:</strong> ${issue.author_login}</div>
+                            <div><strong>State:</strong> ${issue.state}</div>
+                            <div><strong>Created:</strong> ${formatDateTime(issue.created_at)}</div>
+                            <div><strong>GitHub Issue #:</strong> ${issue.issue_number}</div>
+                        </div>
+                        ${analysisHtml}
+                        <div style="margin-top: 1.5rem; padding-top: 1rem; border-top: 1px solid var(--border);">
+                            <button class="btn" onclick="reanalyzeIssue(${issue.id})" style="margin-right: 0.5rem;">
+                                🔄 Re-analyze with AI
+                            </button>
+                            <span id="reanalyze-status-${issue.id}" style="color: var(--text-muted); font-size: 0.9rem;"></span>
+                        </div>
+                    </div>
+                `;
+            } catch (e) {
+                container.innerHTML = `<p>Error loading details: ${e}</p><button class="btn btn-secondary" onclick="loadIssues()">← Back</button>`;
+            }
+        }
+
+        async function reanalyzeIssue(issueId) {
+            const statusEl = document.getElementById(`reanalyze-status-${issueId}`);
+            statusEl.textContent = 'Analyzing...';
+            statusEl.style.color = '#2563eb';
+
+            try {
+                const res = await fetch(`/issues/${issueId}/reanalyze`, { method: 'POST' });
+                const data = await res.json();
+
+                if (!res.ok) {
+                    throw new Error(data.detail || 'Re-analysis failed');
+                }
+
+                statusEl.textContent = '✓ Analysis completed! Refreshing...';
+                statusEl.style.color = '#10b981';
+
+                // Reload the issue detail view after 1 second
+                setTimeout(() => viewIssueDetail(issueId), 1000);
+            } catch (e) {
+                statusEl.textContent = `✗ Error: ${e.message}`;
+                statusEl.style.color = '#ef4444';
+            }
+        }
+
+        function copyArchitecturePlan(issueId) {
+            const rawContent = document.getElementById(`arch-plan-raw-${issueId}`);
+            if (!rawContent) return;
+
+            navigator.clipboard.writeText(rawContent.textContent).then(() => {
+                alert('✓ Architecture Plan copied to clipboard!');
+            }).catch(err => {
+                console.error('Copy failed:', err);
+                alert('✗ Failed to copy');
+            });
+        }
+
+        function downloadArchitecturePlan(issueId, title, repo) {
+            const rawContent = document.getElementById(`arch-plan-raw-${issueId}`);
+            if (!rawContent) return;
+
+            const content = rawContent.textContent;
+            const filename = `architecture-plan-${repo.replace('/', '-')}-${title.substring(0, 50).replace(/[^a-zA-Z0-9]/g, '-')}.md`;
+
+            const blob = new Blob([content], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        function copyBugAnalysis(issueId) {
+            const rawContent = document.getElementById(`bug-analysis-raw-${issueId}`);
+            if (!rawContent) return;
+
+            navigator.clipboard.writeText(rawContent.textContent).then(() => {
+                alert('✓ Bug Analysis copied to clipboard!');
+            }).catch(err => {
+                console.error('Copy failed:', err);
+                alert('✗ Failed to copy');
+            });
+        }
+
+        function downloadBugAnalysis(issueId, title, repo) {
+            const rawContent = document.getElementById(`bug-analysis-raw-${issueId}`);
+            if (!rawContent) return;
+
+            const content = rawContent.textContent;
+            const filename = `bug-analysis-${repo.replace('/', '-')}-${title.substring(0, 50).replace(/[^a-zA-Z0-9]/g, '-')}.md`;
+
+            const blob = new Blob([content], { type: 'text/markdown' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+        }
+
+        // --- Config Logic ---
+        const KNOWN_FIELDS = [
+            { key: 'GITHUB_TOKEN', label: 'GitHub Token', type: 'password' },
+            { key: 'REPOS', label: 'Repos (owner/repo1,owner/repo2)', type: 'text' },
+            { key: 'SQLITE_PATH', label: 'SQLite Path', type: 'text' },
+            { key: 'LLM_BASE_URL', label: 'LLM Base URL', type: 'text' },
+            { key: 'LLM_API_KEY', label: 'LLM API Key', type: 'password' },
+            { key: 'LLM_MODEL', label: 'LLM Model', type: 'text' },
+            { key: 'FEISHU_WEBHOOK_URL', label: 'Feishu Webhook', type: 'password' },
+            { key: 'MAX_NEW_ISSUES_TOTAL', label: 'Max New Issues (Total)', type: 'number' },
+            { key: 'MAX_NEW_ISSUES_PER_REPO', label: 'Max New Issues (Per Repo)', type: 'number' }
+        ];
+
+        async function loadConfig() {
+            try {
+                const res = await fetch('/api/config');
+                const data = await res.json();
+                renderConfigForm(data);
+            } catch (e) {
+                alert('Failed to load config: ' + e);
+            }
+        }
+
+        function renderConfigForm(data) {
+            const container = document.getElementById('config-fields');
+            container.innerHTML = '';
+
+            // Render known fields first in order
+            KNOWN_FIELDS.forEach(field => {
+                const val = data[field.key] || '';
+                container.appendChild(createField(field.key, val, field.label, field.type));
+                delete data[field.key];
+            });
+
+            // Render remaining fields
+            Object.keys(data).forEach(key => {
+                container.appendChild(createField(key, data[key], key, 'text'));
+            });
+        }
+
+        function createField(key, value, label, type) {
+            const div = document.createElement('div');
+            div.className = 'form-group';
+            div.innerHTML = `
+                <label>${label}</label>
+                <input type="${type}" name="${key}" value="${value}">
+            `;
+            return div;
+        }
+
+        async function saveConfig(e) {
+            e.preventDefault();
+            const formData = new FormData(e.target);
+            const data = Object.fromEntries(formData.entries());
+
+            try {
+                const res = await fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(data)
+                });
+                if (!res.ok) throw new Error(await res.text());
+                alert('Configuration saved and reloaded!');
+            } catch (e) {
+                alert('Error saving config: ' + e);
+            }
+        }
+
+        // --- Run Logic ---
+        async function triggerRun() {
+            const out = document.getElementById('run-output');
+            out.style.display = 'block';
+            out.textContent = 'Running...';
+
+            try {
+                const res = await fetch('/run', { method: 'POST' });
+                const data = await res.json();
+                out.textContent = JSON.stringify(data, null, 2);
+                loadRuns();
+            } catch (e) {
+                out.textContent = 'Error: ' + e;
+            }
+        }
+
+        async function loadRuns() {
+            try {
+                const res = await fetch('/runs');
+                const data = await res.json();
+                const container = document.getElementById('run-history');
+                if (data.runs.length === 0) {
+                    container.innerHTML = '<p>No runs yet.</p>';
+                    return;
+                }
+                container.innerHTML = data.runs.map(r => `
+                    <div style="padding: 0.5rem; border-bottom: 1px solid #eee;">
+                        <strong>${formatDateTime(r.run_at)}</strong> - ${r.status} (${r.repo}) <br>
+                        <small>${r.detail || ''}</small>
+                    </div>
+                `).join('');
+            } catch (e) {
+                console.error(e);
+            }
+        }
+
+        // Initial Load
+        loadRuns();
+
+        // --- Graph Editor Logic ---
+        let editor;
+
+        require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' } });
+
+        require(['vs/editor/editor.main'], function () {
+            editor = monaco.editor.create(document.getElementById('monaco-container'), {
+                value: '{}',
+                language: 'json',
+                theme: 'vs-dark',
+                automaticLayout: true,
+                minimap: { enabled: false }
+            });
+
+            // Auto preview on change with debounce
+            let debounceTimer;
+            editor.onDidChangeModelContent(() => {
+                clearTimeout(debounceTimer);
+                debounceTimer = setTimeout(() => {
+                    generateMermaid();
+                }, 500);
+            });
+
+            // Initialize mermaid
+            mermaid.initialize({ startOnLoad: true, theme: 'dark' });
+
+            // Load initial config if on graph tab
+            const graphTab = document.querySelector('#nav-graph.active');
+            if (graphTab) {
+                loadGraphConfig();
+            }
+        });
+
+        async function loadGraphConfig() {
+            try {
+                const res = await fetch('/api/graph');
+                const data = await res.json();
+                if (editor) {
+                    // This will trigger onDidChangeModelContent
+                    editor.setValue(JSON.stringify(data, null, 2));
+                }
+            } catch (e) {
+                console.error("Failed to load graph config", e);
+            }
+        }
+
+        async function saveGraphConfig() {
+            if (!editor) return;
+            try {
+                const configStr = editor.getValue();
+                const config = JSON.parse(configStr); // Validate JSON
+
+                const res = await fetch('/api/graph', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(config)
+                });
+
+                const result = await res.json();
+                if (result.status === 'success') {
+                    alert('Graph configuration saved!');
+                } else {
+                    alert('Error saving: ' + result.detail);
+                }
+            } catch (e) {
+                alert('Invalid JSON: ' + e.message);
+            }
+        }
+
+        function generateMermaid() {
+            try {
+                const config = JSON.parse(editor.getValue());
+                let mermaidDef = 'graph TD\n';
+
+                // Add Nodes
+                (config.nodes || []).forEach(node => {
+                    const safeId = node.id.replace(/[^a-zA-Z0-9_]/g, '_');
+                    const label = `${node.id}<br/><small>${node.function || ''}</small>`;
+                    mermaidDef += `    ${safeId}["${label}"]\n`;
+                });
+
+                // Add Edges
+                (config.edges || []).forEach(edge => {
+                    const src = edge.source.replace(/[^a-zA-Z0-9_]/g, '_');
+                    const tgt = edge.target.replace(/[^a-zA-Z0-9_]/g, '_');
+                    mermaidDef += `    ${src} --> ${tgt}\n`;
+                });
+
+                // Add Conditional Edges
+                (config.conditional_edges || []).forEach(cEdge => {
+                    const src = cEdge.source.replace(/[^a-zA-Z0-9_]/g, '_');
+                    const paths = cEdge.paths || {};
+                    Object.entries(paths).forEach(([key, target]) => {
+                        const targetLabel = target === '__end__' ? 'End' : target;
+                        const tgt = target === '__end__' ? 'End' : target.replace(/[^a-zA-Z0-9_]/g, '_');
+                        mermaidDef += `    ${src} -- ${key} --> ${tgt}\n`;
+                    });
+                });
+
+                // Render
+                const previewEl = document.getElementById('mermaid-preview');
+                previewEl.textContent = mermaidDef;
+                previewEl.removeAttribute('data-processed');
+                mermaid.run({
+                    nodes: [previewEl]
+                }).catch(err => {
+                    console.log("Mermaid render error:", err);
+                    previewEl.innerHTML = `<span style="color:red">Render Error: ${err.message}</span>`;
+                });
+
+            } catch (e) {
+                // Ignore parse errors while typing
+            }
+        }
+
+        // Add to switchTab to reload editor when switching
+        const originalSwitchTab = window.switchTab;
+        window.switchTab = function (tabId) {
+            originalSwitchTab(tabId);
+            if (tabId === 'graph' && editor) {
+                loadGraphConfig();
+                // Need a slight delay/resize for monaco to render correctly if it was hidden
+                setTimeout(() => editor.layout(), 100);
+            }
+        };
+    </script>
+</body>
+
+</html>
