@@ -7,7 +7,7 @@ from app.agent.preprocess import clip_text
 
 from app.config import Config
 from app.notifiers.feishu.renderer import render_card_template_b
-from app.storage.sqlite_store import SQLiteStateStore
+from app.storage.pg_store import PostgresStateStore
 
 
 @dataclass
@@ -19,7 +19,7 @@ def process_repo_with_budget(
     *,
     repo: str,
     cfg: Config,
-    store: SQLiteStateStore,
+    store: PostgresStateStore,
     gh,
     feishu,
     budget: Budget,
@@ -30,12 +30,21 @@ def process_repo_with_budget(
 
     Returns number of newly processed issues in this run.
     """
+    import logging
+    logger = logging.getLogger(__name__)
+    
+    logger.info(f"🚀 Starting to process repo: {repo}")
+    logger.info(f"📊 Budget: {budget.remaining} remaining, per-repo max: {cfg.agent.limits.max_new_issues_per_repo}")
+    
     try:
+        logger.info(f"📡 Fetching issues from GitHub...")
         issues = gh.list_recent_issues(
             repo_full_name=repo,
             limit=cfg.github.per_repo_fetch_limit,
             state="open",
         )
+        
+        logger.info(f"📥 Retrieved {len(issues)} issues from {repo}")
 
         per_repo_max = cfg.agent.limits.max_new_issues_per_repo
         max_body = cfg.agent.text.max_body_chars
@@ -44,78 +53,60 @@ def process_repo_with_budget(
         processed = 0
         skipped_seen = 0
 
-        for issue in issues:
+        for idx, issue in enumerate(issues, 1):
+            logger.debug(f"🔄 Processing issue {idx}/{len(issues)}: #{issue.number} - {issue.title[:50]}...")
+            
             if budget.remaining <= 0:
+                logger.warning(f"⏸️  Budget exhausted, stopping processing")
                 break
             if processed >= per_repo_max:
+                logger.warning(f"⏸️  Reached per-repo limit ({per_repo_max}), stopping")
                 break
 
             # Dedup: repo + issue_number
             if store.has_issue(repo, issue.number):
                 skipped_seen += 1
+                logger.debug(f"⏭️  Issue #{issue.number} already exists in database, skipping")
                 continue
+            
+            logger.info(f"✨ New issue found: #{issue.number} - {issue.title[:60]}")
 
-            issue_row_id = store.upsert_issue(
-                repo=repo,
-                issue_number=issue.number,
-                issue_id=issue.id,
-                issue_url=issue.html_url,
-                title=issue.title,
-                author_login=issue.user.login,
-                state=issue.state,
-                created_at=issue.created_at.isoformat(),
-            )
+            try:
+                issue_row_id = store.upsert_issue(
+                    repo=repo,
+                    issue_number=issue.number,
+                    issue_id=issue.id,
+                    issue_url=issue.html_url,
+                    title=issue.title,
+                    author_login=issue.user.login,
+                    state=issue.state,
+                    created_at=issue.created_at.isoformat(),
+                )
+                logger.info(f"💾 Saved issue to database with ID: {issue_row_id}")
+            except Exception as db_error:
+                logger.error(f"❌ Failed to save issue #{issue.number} to database: {db_error}")
+                import traceback
+                logger.error(f"   Traceback: {traceback.format_exc()}")
+                continue
 
             title = clip_text(issue.title, max_title)
             body = clip_text(issue.body or "", max_body)
 
-            result = run_issue_agent(
-                cfg=cfg,
-                repo=repo,
-                title=title,
-                body=body,
-                issue_url=issue.html_url,
-            )
-
-            analysis_id = store.insert_issue_analysis(
-                issue_row_id=issue_row_id,
-                analysis=result.analysis,
-                model_info=result.model_info,
-            )
-
-            card_cfg = cfg.notifications.feishu.message
-            card = render_card_template_b(
-                result.card_data,
-                max_missing_items=card_cfg.completeness.max_missing_items,
-            )
-
-            try:
-                resp = feishu.send_card(card)
-                status = "sent"
-                if isinstance(resp, dict) and resp.get("status") == "skipped":
-                    status = "skipped"
-                
-                store.insert_notification(
-                    issue_row_id=issue_row_id,
-                    analysis_id=analysis_id,
-                    channel="feishu",
-                    status=status,
-                    provider_response=resp if isinstance(resp, dict) else None,
-                )
-            except Exception as send_err:
-                store.insert_notification(
-                    issue_row_id=issue_row_id,
-                    analysis_id=analysis_id,
-                    channel="feishu",
-                    status="failed",
-                    error=str(send_err),
-                )
-                raise
-
+            # Skip automatic analysis as requested
+            # User will manually trigger "Re-analyze" which will use local code context if available.
+            logger.info(f"⏭️  Skipping auto-analysis for issue #{issue.number} (manual analysis only)")
+            
+            # We don't create analysis or notification records yet.
             processed += 1
             budget.remaining -= 1
+            
+            logger.info(f"📈 Progress: {processed} processed, {budget.remaining} budget remaining")
 
-        # fixed f-string
+        # Summary logging
+        logger.info(f"✅ Repo {repo} processing complete:")
+        logger.info(f"   📝 New issues processed: {processed}")
+        logger.info(f"   ⏭️  Already seen (skipped): {skipped_seen}")
+        logger.info(f"   💰 Budget remaining: {budget.remaining}")
         detail = f"new_issues_processed={processed}, skipped_seen={skipped_seen}, budget_remaining={budget.remaining}"
         if budget.remaining <= 0:
             detail += ", stopped_reason=global_budget_exhausted"
@@ -126,5 +117,11 @@ def process_repo_with_budget(
         return processed
 
     except Exception as e:
-        store.log_run(repo, "failed", detail=str(e))
+        logger.error(f"❌ Fatal error processing repo {repo}: {e}")
+        import traceback
+        logger.error(f"   Full traceback:\n{traceback.format_exc()}")
+        try:
+            store.log_run(repo, "failed", detail=str(e))
+        except Exception as log_error:
+            logger.error(f"❌ Failed to log run error: {log_error}")
         return 0

@@ -5,6 +5,9 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Issue Tracker Agent</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify/dist/purify.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/mermaid/dist/mermaid.min.js"></script>
     <style>
         :root {
             --primary: #10b981;
@@ -330,16 +333,282 @@
             margin-left: 0;
             color: var(--text-muted);
         }
+
+        /* GitHub Copilot Style - PR Review */
+        .gh-review-card {
+            background: #0d1117;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            margin-bottom: 1rem;
+            overflow: hidden;
+        }
+
+        .gh-review-header {
+            background: #161b22;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid #30363d;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+            font-size: 0.85rem;
+            color: #8b949e;
+        }
+
+        .gh-review-header .file-icon {
+            color: #7d8590;
+        }
+
+        .gh-code-block {
+            font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+            font-size: 0.85rem;
+            line-height: 1.5;
+            overflow-x: auto;
+        }
+
+        .gh-code-line {
+            display: flex;
+            min-height: 20px;
+        }
+
+        .gh-line-number {
+            color: #6e7681;
+            text-align: right;
+            padding: 0 0.75rem;
+            user-select: none;
+            min-width: 50px;
+            background: #161b22;
+            border-right: 1px solid #30363d;
+        }
+
+        .gh-line-content {
+            padding: 0 1rem;
+            flex: 1;
+            white-space: pre;
+        }
+
+        .gh-line-add {
+            background: rgba(46, 160, 67, 0.15);
+        }
+
+        .gh-line-add .gh-line-number {
+            background: rgba(46, 160, 67, 0.2);
+            color: #3fb950;
+        }
+
+        .gh-line-add .gh-line-content::before {
+            content: '+';
+            color: #3fb950;
+            margin-right: 0.5rem;
+        }
+
+        .gh-line-del {
+            background: rgba(248, 81, 73, 0.15);
+        }
+
+        .gh-line-del .gh-line-number {
+            background: rgba(248, 81, 73, 0.2);
+            color: #f85149;
+        }
+
+        .gh-line-del .gh-line-content::before {
+            content: '-';
+            color: #f85149;
+            margin-right: 0.5rem;
+        }
+
+        .gh-ai-comment {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            margin: 1rem 0;
+            overflow: hidden;
+        }
+
+        .gh-ai-header {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.75rem 1rem;
+            border-bottom: 1px solid #30363d;
+        }
+
+        .gh-ai-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #9a6af8 0%, #58a6ff 100%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1rem;
+        }
+
+        .gh-ai-name {
+            font-weight: 600;
+            color: #c9d1d9;
+        }
+
+        .gh-ai-badge {
+            background: #1f6feb;
+            color: white;
+            padding: 0.15rem 0.5rem;
+            border-radius: 10px;
+            font-size: 0.7rem;
+            font-weight: 500;
+        }
+
+        .gh-ai-time {
+            color: #8b949e;
+            font-size: 0.85rem;
+            margin-left: auto;
+        }
+
+        .gh-ai-body {
+            padding: 1rem;
+            color: #c9d1d9;
+            line-height: 1.6;
+        }
+
+        .gh-ai-footer {
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            padding: 0.75rem 1rem;
+            border-top: 1px solid #30363d;
+            background: #0d1117;
+        }
+
+        .gh-action-btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            padding: 0.4rem 0.75rem;
+            background: #21262d;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            color: #c9d1d9;
+            font-size: 0.85rem;
+            cursor: pointer;
+            transition: all 0.2s ease;
+        }
+
+        .gh-action-btn:hover {
+            background: #30363d;
+            border-color: #8b949e;
+        }
+
+        .gh-feedback-btn {
+            background: transparent;
+            border: none;
+            color: #8b949e;
+            cursor: pointer;
+            padding: 0.25rem;
+            font-size: 1rem;
+            transition: color 0.2s;
+        }
+
+        .gh-feedback-btn:hover {
+            color: #c9d1d9;
+        }
+
+        .gh-severity-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.3rem;
+            padding: 0.2rem 0.6rem;
+            border-radius: 12px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }
+
+        .gh-severity-high {
+            background: rgba(248, 81, 73, 0.2);
+            color: #f85149;
+        }
+
+        .gh-severity-medium {
+            background: rgba(210, 153, 34, 0.2);
+            color: #d29922;
+        }
+
+        .gh-severity-low {
+            background: rgba(139, 148, 158, 0.2);
+            color: #8b949e;
+        }
+
+        .gh-file-path {
+            font-family: ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace;
+            font-size: 0.85rem;
+            color: #58a6ff;
+            background: rgba(88, 166, 255, 0.1);
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+        }
+
+        .gh-summary-section {
+            background: #161b22;
+            border: 1px solid #30363d;
+            border-radius: 6px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+        }
+
+        .gh-summary-title {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-weight: 600;
+            color: #c9d1d9;
+            margin-bottom: 0.75rem;
+        }
+
+        .gh-summary-content {
+            color: #8b949e;
+            line-height: 1.6;
+        }
+
+        .gh-issue-item {
+            display: flex;
+            align-items: flex-start;
+            gap: 0.75rem;
+            padding: 0.75rem 0;
+            border-bottom: 1px solid #21262d;
+        }
+
+        .gh-issue-item:last-child {
+            border-bottom: none;
+        }
+
+        .gh-copilot-note {
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            font-size: 0.8rem;
+            color: #8b949e;
+            margin-top: 0.5rem;
+        }
+
+        .gh-copilot-note a {
+            color: #58a6ff;
+            text-decoration: none;
+        }
+
+        .gh-copilot-note a:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 
 <body>
     <div class="sidebar">
         <h3>Issue Tracker</h3>
-        <div class="nav-item active" onclick="switchTab('run')" id="nav-run">Run & Monitor</div>
-        <div class="nav-item" onclick="switchTab('issues')" id="nav-issues">Issues</div>
-        <div class="nav-item" onclick="switchTab('graph')" id="nav-graph">Graph Editor</div>
-        <div class="nav-item" onclick="switchTab('config')" id="nav-config">Configuration</div>
+        <div class="nav-item" onclick="switchTab('run')" id="nav-run" style="display: none;">🚀 Run & Monitor</div>
+        <div class="nav-item" onclick="switchTab('issues')" id="nav-issues" style="display: none;">📋 Issues & PRs</div>
+        <div class="nav-item active" onclick="switchTab('pr-review')" id="nav-pr-review">🔍 Review & Analysis</div>
+        <div class="nav-item" onclick="switchTab('repos')" id="nav-repos">📦 Repos</div>
+        <div class="nav-item" onclick="switchTab('graph')" id="nav-graph">🔧 Graph Editor</div>
+        <div class="nav-item" onclick="switchTab('config')" id="nav-config">⚙️ Configuration</div>
     </div>
 
     <div class="main">
@@ -372,7 +641,7 @@
             </div>
         </div>
         <!-- Run Panel -->
-        <div id="panel-run" class="panel active">
+        <div id="panel-run" class="panel">
             <h2>Manual Trigger</h2>
             <p>Trigger the issue processing workflow manually.</p>
             <button class="btn" onclick="triggerRun()">Run Now</button>
@@ -383,16 +652,164 @@
             <div id="run-history">Loading...</div>
         </div>
 
-        <!-- Issues Panel -->
+        <!-- Issues & PRs Panel -->
         <div id="panel-issues" class="panel">
-            <h2>Collected Issues</h2>
-            <div style="margin-bottom: 1rem;">
-                <label>Filter by Repo:</label>
-                <input type="text" id="filter-repo" placeholder="e.g., owner/repo"
-                    style="width: 300px; margin-right: 1rem;">
-                <button class="btn" onclick="loadIssues()">Refresh</button>
+            <h2>Issues & PRs</h2>
+            <div style="margin-bottom: 1rem; display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                <div>
+                    <label style="display: inline;">Type:</label>
+                    <select id="filter-type" style="width: 120px;">
+                        <option value="">All</option>
+                        <option value="issue">Issues Only</option>
+                        <option value="pr">PRs Only</option>
+                    </select>
+                </div>
+                <div>
+                    <label style="display: inline;">Repo:</label>
+                    <input type="text" id="filter-repo" placeholder="e.g., owner/repo" style="width: 200px;">
+                </div>
+                <button class="btn" onclick="loadItems()">Refresh</button>
             </div>
             <div id="issues-list">Loading...</div>
+        </div>
+
+        <!-- PR Review Panel -->
+        <div id="panel-pr-review" class="panel active">
+            <h2 style="margin-bottom: 2rem; font-weight: 600; letter-spacing: -0.02em;">🔍 Review & Analysis</h2>
+
+            <!-- Main Input Card -->
+            <div
+                style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 2rem; margin-bottom: 2rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+                <!-- Analysis Input -->
+                <div style="margin-bottom: 1.5rem;">
+                    <label
+                        style="display: block; margin-bottom: 0.8rem; font-weight: 500; color: var(--text); font-size: 1.1rem;">GitHub
+                        URL or Issue ID</label>
+                    <div style="display: flex; gap: 0.8rem;">
+                        <input type="text" id="pr-review-url"
+                            placeholder="e.g. https://github.com/owner/repo/pull/123, /issues/456, or Action Job URL"
+                            style="flex: 1; padding: 0.8rem 1rem; font-size: 1rem; border-radius: 8px; border: 1px solid var(--border); background: var(--bg-dark); color: var(--text);">
+                        <button class="btn" onclick="submitPRReview()" id="pr-review-btn"
+                            style="padding: 0 2rem; font-size: 1rem; border-radius: 8px; font-weight: 600;">🚀
+                            Analyze</button>
+                    </div>
+                    <div style="margin-top: 0.8rem; font-size: 0.9rem; color: var(--text-muted); line-height: 1.5;">
+                        Supports: <strong>PRs</strong>, <strong>Issues</strong>, <strong>Action Run/Job URLs</strong>,
+                        or <code>owner/repo#id</code>
+                    </div>
+                </div>
+
+                <!-- Advanced Options -->
+                <details>
+                    <summary
+                        style="cursor: pointer; color: var(--accent); font-size: 0.9rem; font-weight: 500; display: inline-flex; align-items: center; gap: 0.3rem;">
+                        <span>🛠️ Advanced: Paste Raw Logs / Context</span>
+                    </summary>
+                    <div style="margin-top: 1rem; padding-top: 1rem; border-top: 1px dashed var(--border);">
+                        <label style="display: block; margin-bottom: 0.5rem; color: var(--text-muted);">Paste Raw Logs
+                            (Optional)</label>
+                        <textarea id="analysis-raw-log" rows="8"
+                            placeholder="Paste CI error logs, stack traces, or additional context here. Useful if automatic log fetching fails (e.g. 403 Forbidden)."
+                            style="width: 100%; background: var(--bg-dark); color: var(--text-code); border: 1px solid var(--border); padding: 1rem; border-radius: 8px; font-family: monospace; font-size: 0.9rem; line-height: 1.5;"></textarea>
+                    </div>
+                </details>
+            </div>
+
+            <!-- Repo Context Selector (Optional Helper) -->
+            <div style="margin-bottom: 3rem; padding: 0 0.5rem;">
+                <details>
+                    <summary style="cursor: pointer; color: var(--text-muted); font-size: 0.95rem; font-weight: 500;">📂
+                        Browse by Repository (Optional)</summary>
+                    <div
+                        style="margin-top: 1rem; background: var(--surface-light); padding: 1.5rem; border-radius: 12px; border: 1px solid var(--border);">
+                        <div style="display: flex; gap: 1rem; align-items: flex-end;">
+                            <div class="form-group" style="margin-bottom: 0; flex: 1;">
+                                <label>Select Repository</label>
+                                <select id="pr-review-repo-select" onchange="onRepoSelectChange()"
+                                    style="background: var(--bg-dark);">
+                                    <option value="">-- Select a repo to view Open PRs --</option>
+                                </select>
+                            </div>
+                            <button class="btn btn-secondary" onclick="refreshRepoList()"
+                                style="margin-bottom: 0;">Refresh</button>
+                        </div>
+
+                        <div id="quick-pr-input"
+                            style="display: none; margin-top: 1rem; padding-top: 1rem; border-top: 1px solid var(--border);">
+                            <div style="display: flex; gap: 1rem;">
+                                <button class="btn btn-secondary" onclick="loadRepoPRs()">📋 List Open PRs</button>
+                                <!-- Helper hidden input for logic compatibility -->
+                                <input type="hidden" id="pr-number-input">
+                            </div>
+                        </div>
+                    </div>
+                </details>
+            </div>
+
+            <!-- PR List Container -->
+            <div id="pr-open-list" style="display: none; margin-bottom: 2rem;">
+                <h3 style="margin-top: 0;">📋 Open Pull Requests</h3>
+                <div id="pr-open-list-content"></div>
+            </div>
+
+            <div id="pr-review-status" class="run-status" style="display:none; margin-top: 1rem;"></div>
+
+            <div id="pr-review-result" style="display:none; margin-top: 2rem;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                    <h3 style="margin: 0;">Review Result</h3>
+                    <button class="btn btn-secondary" style="padding: 0.2rem 0.5rem; font-size: 0.8rem;"
+                        onclick="clearReviewResult()">✕ Close</button>
+                </div>
+                <div id="pr-review-content" class="markdown-body"></div>
+            </div>
+
+            <!-- Recent History -->
+            <div style="margin-top: 4rem;">
+                <h3
+                    style="border-bottom: 1px solid var(--border); padding-bottom: 1rem; margin-bottom: 1.5rem; color: var(--text-muted); font-size: 1.1rem; text-transform: uppercase; letter-spacing: 0.05em;">
+                    Recent Activity</h3>
+                <div id="pr-reviews-list">Loading...</div>
+            </div>
+        </div>
+
+        <!-- Repos Panel -->
+        <div id="panel-repos" class="panel">
+            <h2>📦 Repository Management</h2>
+            <p>Manage the repositories you want to monitor.</p>
+
+            <div style="background: var(--surface-light); padding: 1.5rem; border-radius: 12px; margin-bottom: 2rem;">
+                <h3 style="margin-top: 0;">Add New Repository</h3>
+                <form id="add-repo-form" onsubmit="addRepo(event)">
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                        <div class="form-group">
+                            <label>Repository (owner/repo)</label>
+                            <input type="text" id="new-repo-name" placeholder="e.g., apache/hertzbeat" required>
+                        </div>
+                        <div class="form-group">
+                            <label>Local Path (optional)</label>
+                            <input type="text" id="new-repo-path" placeholder="/path/to/local/clone">
+                        </div>
+                    </div>
+                    <div style="display: flex; gap: 1rem; align-items: center; margin-top: 1rem;">
+                        <label style="display: flex; align-items: center; gap: 0.5rem; margin: 0;">
+                            <input type="checkbox" id="new-repo-active" checked style="width: auto;">
+                            Active
+                        </label>
+                        <label style="display: none; align-items: center; gap: 0.5rem; margin: 0;">
+                            <input type="checkbox" id="new-repo-sync-issues" style="width: auto;">
+                            Sync Issues
+                        </label>
+                        <label style="display: none; align-items: center; gap: 0.5rem; margin: 0;">
+                            <input type="checkbox" id="new-repo-sync-prs" style="width: auto;">
+                            Sync PRs
+                        </label>
+                        <button type="submit" class="btn" style="margin-left: auto;">Add Repository</button>
+                    </div>
+                </form>
+            </div>
+
+            <h3>Managed Repositories</h3>
+            <div id="repos-list">Loading...</div>
         </div>
 
         <!-- Config Panel -->
@@ -418,12 +835,17 @@
             document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
             document.querySelectorAll('.panel').forEach(el => el.classList.remove('active'));
 
-            event.target.classList.add('active');
+            document.getElementById(`nav-${tab}`).classList.add('active');
             document.getElementById(`panel-${tab}`).classList.add('active');
 
             if (tab === 'config') loadConfig();
             if (tab === 'run') loadRuns();
-            if (tab === 'issues') loadIssues();
+            if (tab === 'issues') loadItems();
+            if (tab === 'repos') loadRepos();
+            if (tab === 'pr-review') {
+                refreshRepoList();
+                loadPRReviews();
+            }
         }
 
         // --- Issues Logic ---
@@ -439,6 +861,16 @@
             return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
         }
 
+        function escapeHtml(text) {
+            if (!text) return text;
+            return text
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        }
+
         function normalizeRepoInput(input) {
             input = input.trim();
             // Extract owner/repo from GitHub URL
@@ -449,13 +881,14 @@
             return input;
         }
 
-        async function loadIssues() {
+        async function loadItems() {
             // Show filter controls when returning to list
             const filterControls = document.querySelector('#panel-issues > div[style*="margin-bottom"]');
             if (filterControls) {
-                filterControls.style.display = 'block';
+                filterControls.style.display = 'flex';
             }
 
+            const typeFilter = document.getElementById('filter-type')?.value || '';
             const repoInput = document.getElementById('filter-repo');
             const repo = normalizeRepoInput(repoInput?.value || '');
             const container = document.getElementById('issues-list');
@@ -468,43 +901,63 @@
             try {
                 const params = new URLSearchParams();
                 if (repo) params.append('repo', repo);
+                if (typeFilter) params.append('type', typeFilter);
 
-                const res = await fetch(`/issues?${params}`);
+                const res = await fetch(`/items?${params}`);
                 const data = await res.json();
 
-                if (data.issues.length === 0) {
-                    container.innerHTML = '<p>No issues found. Run a sync first.</p>';
+                if (data.items.length === 0) {
+                    container.innerHTML = '<p>No items found. Run a sync first or submit a PR for review.</p>';
                     return;
                 }
 
-                container.innerHTML = data.issues.map(issue => `
+                container.innerHTML = data.items.map(item => {
+                    const isIssue = item.type === 'issue';
+                    const typeBadge = isIssue
+                        ? '<span style="background: #3b82f6; color: white; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; margin-right: 0.5rem;">ISSUE</span>'
+                        : '<span style="background: #10b981; color: white; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; margin-right: 0.5rem;">PR</span>';
+
+                    const prStats = !isIssue && item.files_changed
+                        ? `<span style="color: #10b981;">+${item.additions || 0}</span>/<span style="color: #ef4444;">-${item.deletions || 0}</span> (${item.files_changed} files)`
+                        : '';
+
+                    return `
                     <div style="padding: 1rem; border: 1px solid var(--border); border-radius: 12px; margin-bottom: 1rem; background: var(--surface);">
                         <div style="display: flex; justify-content: space-between; align-items: start;">
                             <div style="flex: 1;">
                                 <h3 style="margin: 0 0 0.5rem 0;">
-                                    <a href="${issue.issue_url}" target="_blank" style="color: var(--primary); text-decoration: none;">
-                                        ${issue.title}
+                                    ${typeBadge}
+                                    <a href="${item.url}" target="_blank" style="color: var(--primary); text-decoration: none;">
+                                        ${escapeHtml(item.title)}
                                     </a>
                                 </h3>
                                 <div style="font-size: 0.85rem; color: var(--text-muted);">
-                                    <span><strong>Repo:</strong> ${issue.repo}</span> | 
-                                    <span><strong>Author:</strong> ${issue.author_login}</span> | 
-                                    <span><strong>State:</strong> ${issue.state}</span>
+                                    <span><strong>Repo:</strong> ${item.repo}</span> | 
+                                    <span><strong>#${item.number}</strong></span> | 
+                                    <span><strong>Author:</strong> ${item.author}</span> | 
+                                    <span><strong>State:</strong> ${item.state}</span>
+                                    ${prStats ? ' | ' + prStats : ''}
                                 </div>
                                 <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 0.25rem;">
-                                    Created: ${formatDateTime(issue.created_at)}
+                                    Created: ${formatDateTime(item.created_at)}
                                 </div>
                             </div>
                             <button class="btn" style="padding: 0.5rem 1rem; font-size: 0.85rem;" 
-                                    onclick="viewIssueDetail(${issue.id})">
+                                    onclick="${isIssue ? `viewIssueDetail(${item.id})` : `viewPRDetail(${item.id})`}">
                                 View Details
                             </button>
                         </div>
                     </div>
-                `).join('');
+                `;
+                }).join('');
             } catch (e) {
-                container.innerHTML = '<p>Error loading issues: ' + e + '</p>';
+                container.innerHTML = '<p>Error loading items: ' + e + '</p>';
             }
+        }
+
+        // Keep loadIssues as an alias for compatibility
+        async function loadIssues() {
+            return loadItems();
         }
 
         async function viewIssueDetail(issueId) {
@@ -616,7 +1069,7 @@
                     <div style="border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; background: var(--surface);">
                         <h2 style="margin-top: 0;">
                             <a href="${issue.issue_url}" target="_blank" style="color: var(--primary);">
-                                ${issue.title}
+                                ${escapeHtml(issue.title)}
                             </a>
                         </h2>
                         <div style="margin-bottom: 1rem; color: var(--text-muted);">
@@ -727,14 +1180,15 @@
         // --- Config Logic ---
         const KNOWN_FIELDS = [
             { key: 'GITHUB_TOKEN', label: 'GitHub Token', type: 'password' },
-            { key: 'REPOS', label: 'Repos (owner/repo1,owner/repo2)', type: 'text' },
-            { key: 'SQLITE_PATH', label: 'SQLite Path', type: 'text' },
+            { key: 'DATABASE_URL', label: 'Database URL (PostgreSQL)', type: 'text' },
             { key: 'LLM_BASE_URL', label: 'LLM Base URL', type: 'text' },
             { key: 'LLM_API_KEY', label: 'LLM API Key', type: 'password' },
             { key: 'LLM_MODEL', label: 'LLM Model', type: 'text' },
             { key: 'FEISHU_WEBHOOK_URL', label: 'Feishu Webhook', type: 'password' },
+            { key: 'DEFAULT_REPOS_DIR', label: 'Default Repos Directory (Auto Clone)', type: 'text' },
             { key: 'MAX_NEW_ISSUES_TOTAL', label: 'Max New Issues (Total)', type: 'number' },
-            { key: 'MAX_NEW_ISSUES_PER_REPO', label: 'Max New Issues (Per Repo)', type: 'number' }
+            { key: 'MAX_NEW_ISSUES_PER_REPO', label: 'Max New Issues (Per Repo)', type: 'number' },
+            { key: 'PER_REPO_FETCH_LIMIT', label: 'Per Repo Fetch Limit', type: 'number' }
         ];
 
         async function loadConfig() {
@@ -818,9 +1272,14 @@
                     return;
                 }
                 container.innerHTML = data.runs.map(r => `
-                    <div style="padding: 0.5rem; border-bottom: 1px solid #eee;">
-                        <strong>${formatDateTime(r.run_at)}</strong> - ${r.status} (${r.repo}) <br>
-                        <small>${r.detail || ''}</small>
+                    <div style="padding: 1rem; border-bottom: 1px solid var(--border); background: var(--surface);">
+                        <div style="font-weight: 500; color: ${r.status === 'success' ? 'var(--primary)' : '#ef4444'}">
+                            ${formatDateTime(r.run_at)} - ${r.status.toUpperCase()}
+                            <span style="color: var(--text-muted); font-size: 0.9em; margin-left: 0.5rem;">(${r.repo})</span>
+                        </div>
+                        <div style="font-family: monospace; font-size: 0.85rem; color: var(--text-muted); margin-top: 0.5rem; white-space: pre-wrap; word-break: break-all;">
+                            ${escapeHtml(r.detail || '')}
+                        </div>
                     </div>
                 `).join('');
             } catch (e) {
@@ -956,6 +1415,950 @@
                 setTimeout(() => editor.layout(), 100);
             }
         };
+
+        // ============================================
+        // Repos Management Functions
+        // ============================================
+
+        async function loadRepos() {
+            const container = document.getElementById('repos-list');
+            container.innerHTML = 'Loading...';
+
+            try {
+                const res = await fetch('/repos?active_only=false');
+                const data = await res.json();
+
+                if (data.repos.length === 0) {
+                    container.innerHTML = '<p style="color: var(--text-muted);">No repositories configured. Add one above.</p>';
+                    return;
+                }
+
+                container.innerHTML = data.repos.map(repo => `
+                    <div style="padding: 1rem; border: 1px solid var(--border); border-radius: 12px; margin-bottom: 1rem; background: var(--surface); ${!repo.is_active ? 'opacity: 0.6;' : ''}">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div style="flex: 1;">
+                                <h4 style="margin: 0 0 0.5rem 0; display: flex; align-items: center; gap: 0.5rem;">
+                                    <span>${escapeHtml(repo.full_name)}</span>
+                                    ${repo.is_active ? '<span style="background: #10b981; color: white; padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.7rem;">ACTIVE</span>' : '<span style="background: #64748b; color: white; padding: 0.1rem 0.4rem; border-radius: 4px; font-size: 0.7rem;">INACTIVE</span>'}
+                                </h4>
+                                <div style="font-size: 0.85rem; color: var(--text-muted);">
+                                    ${repo.local_path ? `<span>📂 ${escapeHtml(repo.local_path)}</span>` : '<span style="color: #94a3b8;">No local path configured</span>'}
+                                </div>
+                                <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 0.25rem;">
+                                    ${repo.auto_sync_issues ? '✅ Sync Issues' : '❌ Sync Issues'} | 
+                                    ${repo.auto_sync_prs ? '✅ Sync PRs' : '❌ Sync PRs'}
+                                </div>
+                            </div>
+                            <div style="display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                                <button class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;"
+                                        onclick="navigateToRepoIssues('${escapeHtml(repo.full_name)}')">
+                                    📋 Issues
+                                </button>
+                                <button class="btn" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;"
+                                        onclick="navigateToRepoPRs('${escapeHtml(repo.full_name)}')">
+                                    🔍 PRs
+                                </button>
+                                <button class="btn btn-secondary" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;"
+                                        onclick="deleteRepo(${repo.id}, '${escapeHtml(repo.full_name)}')">
+                                    🗑️
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                container.innerHTML = '<p>Error loading repos: ' + e + '</p>';
+            }
+        }
+
+        async function addRepo(event) {
+            event.preventDefault();
+
+            const fullName = document.getElementById('new-repo-name').value.trim();
+            const localPath = document.getElementById('new-repo-path').value.trim() || null;
+            const isActive = document.getElementById('new-repo-active').checked;
+            const autoSyncIssues = document.getElementById('new-repo-sync-issues').checked;
+            const autoSyncPrs = document.getElementById('new-repo-sync-prs').checked;
+
+            if (!fullName) {
+                alert('Please enter a repository name (owner/repo)');
+                return;
+            }
+
+            try {
+                const res = await fetch('/repos', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        full_name: fullName,
+                        local_path: localPath,
+                        is_active: isActive,
+                        auto_sync_issues: autoSyncIssues,
+                        auto_sync_prs: autoSyncPrs
+                    })
+                });
+
+                const data = await res.json();
+
+                if (res.ok) {
+                    // Clear form
+                    document.getElementById('new-repo-name').value = '';
+                    document.getElementById('new-repo-path').value = '';
+                    document.getElementById('new-repo-active').checked = true;
+                    document.getElementById('new-repo-sync-issues').checked = true;
+                    document.getElementById('new-repo-sync-prs').checked = false;
+
+                    // Reload list
+                    loadRepos();
+                } else {
+                    alert('Failed to add repo: ' + (data.detail || 'Unknown error'));
+                }
+            } catch (e) {
+                alert('Error adding repo: ' + e);
+            }
+        }
+
+        async function deleteRepo(id, name) {
+            if (!confirm(`Are you sure you want to delete "${name}"?`)) {
+                return;
+            }
+
+            try {
+                const res = await fetch(`/repos/${id}`, { method: 'DELETE' });
+                if (res.ok) {
+                    loadRepos();
+                } else {
+                    const data = await res.json();
+                    alert('Failed to delete repo: ' + (data.detail || 'Unknown error'));
+                }
+            } catch (e) {
+                alert('Error deleting repo: ' + e);
+            }
+        }
+
+        // Navigation from Repos page
+        function navigateToRepoIssues(repoFullName) {
+            // Set the filter and navigate to Issues tab
+            document.getElementById('filter-repo').value = repoFullName;
+            document.getElementById('filter-type').value = '';  // Show all types
+            switchTab('issues');
+        }
+
+        function navigateToRepoPRs(repoFullName) {
+            // Navigate to PR Review tab and pre-select the repo
+            switchTab('pr-review');
+            const select = document.getElementById('pr-review-repo-select');
+
+            // Ensure repos are loaded, then select the one
+            refreshRepoList().then(() => {
+                select.value = repoFullName;
+                onRepoSelectChange();  // Show the quick input but don't auto-load PRs
+            });
+        }
+
+        // ============================================
+        // PR Review Functions
+        // ============================================
+
+        // Called when repo selection changes
+        function onRepoSelectChange() {
+            const select = document.getElementById('pr-review-repo-select');
+            const quickInput = document.getElementById('quick-pr-input');
+            const prListContainer = document.getElementById('pr-open-list');
+
+            if (select.value) {
+                // Show quick PR input section
+                quickInput.style.display = 'block';
+                // Hide PR list until user clicks load
+                prListContainer.style.display = 'none';
+                document.getElementById('pr-open-list-content').innerHTML = 'Click "Load Open PRs" to fetch the list.';
+                // Clear PR number input
+                document.getElementById('pr-number-input').value = '';
+            } else {
+                // Hide quick input when no repo selected
+                quickInput.style.display = 'none';
+                prListContainer.style.display = 'none';
+            }
+        }
+
+        // Quick review PR by number
+        async function quickReviewPR() {
+            const select = document.getElementById('pr-review-repo-select');
+            const prInput = document.getElementById('pr-number-input');
+            const repoFullName = select.value;
+            const inputValue = prInput.value.trim();
+
+            if (!inputValue) {
+                alert('Please enter a PR number or URL');
+                return;
+            }
+
+            let prUrl;
+
+            // Check if input is a URL (contains github.com or starts with http)
+            if (inputValue.includes('github.com') || inputValue.startsWith('http')) {
+                // Use the URL directly
+                prUrl = inputValue;
+            } else if (inputValue.includes('/')) {
+                // Format like owner/repo#123 or owner/repo/pull/123
+                prUrl = inputValue;
+            } else {
+                // Just a number, combine with selected repo
+                if (!repoFullName) {
+                    alert('Please select a repository first, or enter a full PR URL');
+                    return;
+                }
+                prUrl = `${repoFullName}#${inputValue}`;
+            }
+
+            // Set the URL and trigger review
+            document.getElementById('pr-review-url').value = prUrl;
+            await submitPRReview();
+        }
+
+        // Populate repo selector for PR Review
+        async function refreshRepoList() {
+            const select = document.getElementById('pr-review-repo-select');
+            const currentValue = select.value;
+
+            try {
+                const res = await fetch('/repos?active_only=false');
+                const data = await res.json();
+
+                select.innerHTML = '<option value="">-- Select a repo --</option>';
+                data.repos.forEach(repo => {
+                    const option = document.createElement('option');
+                    option.value = repo.full_name;
+                    option.textContent = repo.full_name + (repo.is_active ? '' : ' (inactive)');
+                    select.appendChild(option);
+                });
+
+                // Restore selection if possible
+                if (currentValue) {
+                    select.value = currentValue;
+                }
+            } catch (e) {
+                console.error('Failed to load repos:', e);
+            }
+        }
+
+        // Load open PRs for selected repo
+        async function loadRepoPRs() {
+            const select = document.getElementById('pr-review-repo-select');
+            const repoFullName = select.value;
+            const listContainer = document.getElementById('pr-open-list');
+            const contentContainer = document.getElementById('pr-open-list-content');
+
+            if (!repoFullName) {
+                listContainer.style.display = 'none';
+                return;
+            }
+
+            listContainer.style.display = 'block';
+            contentContainer.innerHTML = '<span style="color: var(--text-muted);">Loading open PRs from GitHub...</span>';
+
+            try {
+                const res = await fetch(`/repos/${encodeURIComponent(repoFullName)}/github-prs?state=open&limit=30`);
+                const data = await res.json();
+
+                if (data.prs.length === 0) {
+                    contentContainer.innerHTML = '<p style="color: var(--text-muted);">No open PRs found for this repository.</p>';
+                    return;
+                }
+
+                contentContainer.innerHTML = data.prs.map(pr => `
+                    <div style="padding: 1rem; border: 1px solid var(--border); border-radius: 12px; margin-bottom: 0.75rem; background: var(--surface); transition: all 0.2s ease;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <div style="flex: 1;">
+                                <h4 style="margin: 0 0 0.5rem 0;">
+                                    <a href="${pr.url}" target="_blank" style="color: var(--primary); text-decoration: none;">
+                                        #${pr.number}: ${escapeHtml(pr.title)}
+                                    </a>
+                                </h4>
+                                <div style="font-size: 0.85rem; color: var(--text-muted);">
+                                    <span>${pr.head_ref} → ${pr.base_ref}</span> | 
+                                    <span>${pr.author}</span> | 
+                                    <span style="color: #10b981;">+${pr.additions || 0}</span>/<span style="color: #ef4444;">-${pr.deletions || 0}</span>
+                                    ${pr.files_changed ? ` (${pr.files_changed} files)` : ''}
+                                </div>
+                            </div>
+                            <button class="btn" style="padding: 0.5rem 1rem; font-size: 0.85rem;" 
+                                    onclick="startPRReviewFromList('${repoFullName}', ${pr.number})">
+                                🚀 Review
+                            </button>
+                        </div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                contentContainer.innerHTML = `<p style="color: #ef4444;">Error loading PRs: ${e}</p>`;
+            }
+        }
+
+        // Start PR review from the list
+        async function startPRReviewFromList(repo, prNumber) {
+            const prUrl = `${repo}#${prNumber}`;
+            document.getElementById('pr-review-url').value = prUrl;
+            await submitPRReview();
+        }
+
+        async function loadPRReviews() {
+            const container = document.getElementById('pr-reviews-list');
+            container.innerHTML = 'Loading...';
+
+            try {
+                // Get recent PRs that have been reviewed
+                const res = await fetch('/prs?limit=20');
+                const data = await res.json();
+
+                if (data.prs.length === 0) {
+                    container.innerHTML = '<p style="color: var(--text-muted);">No PRs reviewed yet. Submit a PR URL above to get started.</p>';
+                    return;
+                }
+
+                container.innerHTML = data.prs.map(pr => `
+                    <div id="pr-card-${pr.id}" style="border: 1px solid var(--border); border-radius: 12px; margin-bottom: 1rem; background: var(--surface); overflow: hidden;">
+                        <div style="padding: 1rem; display: flex; justify-content: space-between; align-items: start;">
+                            <div style="flex: 1;">
+                                <h4 style="margin: 0 0 0.5rem 0;">
+                                    <a href="${pr.pr_url}" target="_blank" style="color: var(--primary); text-decoration: none;">
+                                        ${escapeHtml(pr.title)}
+                                    </a>
+                                </h4>
+                                <div style="font-size: 0.85rem; color: var(--text-muted);">
+                                    <span>${pr.repo}#${pr.pr_number}</span> | 
+                                    <span>${pr.author_login}</span> | 
+                                    <span style="color: #10b981;">+${pr.additions || 0}</span>/<span style="color: #ef4444;">-${pr.deletions || 0}</span>
+                                </div>
+                            </div>
+                            <button id="pr-btn-${pr.id}" class="btn" style="padding: 0.4rem 0.8rem; font-size: 0.8rem;"
+                                    onclick="togglePRReviewDetail(${pr.id})">
+                                ▼ View Review
+                            </button>
+                        </div>
+                        <div id="pr-detail-${pr.id}" style="display: none; border-top: 1px solid var(--border); padding: 1rem; background: var(--bg-darker);"></div>
+                    </div>
+                `).join('');
+            } catch (e) {
+                container.innerHTML = '<p>Error loading PR reviews: ' + e + '</p>';
+            }
+        }
+
+        // Toggle inline review detail expansion
+        async function togglePRReviewDetail(prId) {
+            const detailEl = document.getElementById(`pr-detail-${prId}`);
+            const btnEl = document.getElementById(`pr-btn-${prId}`);
+
+            // If already visible, collapse it
+            if (detailEl.style.display !== 'none') {
+                detailEl.style.display = 'none';
+                btnEl.innerHTML = '▼ View Review';
+                return;
+            }
+
+            // Show loading state
+            detailEl.style.display = 'block';
+            detailEl.innerHTML = '<span style="color: var(--text-muted);">📄 Loading review details...</span>';
+            btnEl.innerHTML = '▲ Hide Review';
+
+            try {
+                const [prRes, reviewsRes] = await Promise.all([
+                    fetch(`/prs/${prId}`),
+                    fetch(`/prs/${prId}/reviews`)
+                ]);
+
+                const prData = await prRes.json();
+                const reviewsData = await reviewsRes.json();
+
+                const pr = prData.pr;
+                const reviews = reviewsData.reviews;
+
+                let html = '';
+
+                if (reviews.length === 0) {
+                    html = `
+                        <p style="color: var(--text-muted);">No reviews yet for this PR.</p>
+                        <button class="btn" onclick="reReviewPR(${prId}, '${pr.pr_url}')">🔍 Re-review Now</button>
+                    `;
+                } else {
+                    reviews.forEach((review, idx) => {
+                        const r = review.review;
+                        html += `
+                            <div style="margin-bottom: 1rem; ${idx > 0 ? 'border-top: 1px solid var(--border); padding-top: 1rem;' : ''}">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 0.75rem;">
+                                    <span style="color: var(--text-muted); font-size: 0.85rem;">Review #${reviews.length - idx} - ${formatDateTime(review.created_at)}</span>
+                                    <span style="font-weight: 600; font-size: 0.85rem; color: ${r.overall_assessment === 'APPROVE' ? '#10b981' : r.overall_assessment === 'REQUEST_CHANGES' ? '#ef4444' : '#3b82f6'};">
+                                        ${r.overall_assessment || 'N/A'}
+                                    </span>
+                                </div>
+                                ${formatPRReview({ title: pr.title, repo: pr.repo, number: pr.pr_number, author: pr.author_login, additions: pr.additions, deletions: pr.deletions, files_changed: pr.files_changed }, r)}
+                            </div>
+                        `;
+                    });
+                }
+
+                detailEl.innerHTML = html;
+
+                // Scroll the card into view if needed
+                document.getElementById(`pr-card-${prId}`).scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+            } catch (e) {
+                detailEl.innerHTML = `<span style="color: #ef4444;">❌ Error loading details: ${e}</span>`;
+            }
+        }
+
+        async function submitPRReview() {
+            const urlInput = document.getElementById('pr-review-url');
+            const logInput = document.getElementById('analysis-raw-log');
+            const prUrl = urlInput.value.trim();
+            const logContent = logInput ? logInput.value.trim() : '';
+
+            if (!prUrl) {
+                alert('Please enter a PR/Issue URL');
+                return;
+            }
+
+            const statusEl = document.getElementById('pr-review-status');
+            const resultEl = document.getElementById('pr-review-result');
+            const btn = document.getElementById('pr-review-btn');
+
+            // Show loading state
+            btn.disabled = true;
+            btn.textContent = '⏳ Analyzing...';
+            statusEl.style.display = 'block';
+            statusEl.innerHTML = '<span style="color: var(--accent);">🔍 Fetching details and running AI analysis... This may take a minute.</span>';
+            resultEl.style.display = 'none';
+
+            try {
+                const res = await fetch('/analyze-item', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        url: prUrl,
+                        log: logContent
+                    })
+                });
+
+                const data = await res.json();
+
+                if (res.ok) {
+                    statusEl.innerHTML = '<span style="color: #10b981;">✅ Analysis completed!</span>';
+
+                    // Display result
+                    resultEl.style.display = 'block';
+                    const contentEl = document.getElementById('pr-review-content');
+
+                    if (data.type === 'issue_analysis') {
+                        contentEl.innerHTML = renderIssueAnalysis(data.data);
+                    } else {
+                        const review = data.data.review;
+                        const pr = data.data.pr;
+                        contentEl.innerHTML = formatPRReview(pr, review);
+                        loadPRReviews();
+                    }
+
+                    // Clear input
+                    urlInput.value = '';
+                } else {
+                    statusEl.innerHTML = `<span style="color: #ef4444;">❌ Error: ${data.detail || 'Review failed'}</span>`;
+                }
+            } catch (e) {
+                statusEl.innerHTML = `<span style="color: #ef4444;">❌ Error: ${e}</span>`;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = '🚀 Start Review';
+            }
+        }
+
+        function formatPRReview(pr, review) {
+            const assessmentIcons = {
+                'APPROVE': '✅',
+                'REQUEST_CHANGES': '⚠️',
+                'COMMENT': '💬',
+                'ERROR': '❌'
+            };
+
+            const assessmentLabels = {
+                'APPROVE': 'Approved',
+                'REQUEST_CHANGES': 'Changes Requested',
+                'COMMENT': 'Comment',
+                'ERROR': 'Error'
+            };
+
+            if (review.error) {
+                return `
+                    <div class="gh-ai-comment">
+                        <div class="gh-ai-header">
+                            <div class="gh-ai-avatar">🤖</div>
+                            <span class="gh-ai-name">AI Review</span>
+                            <span class="gh-ai-badge">AI</span>
+                        </div>
+                        <div class="gh-ai-body" style="color: #f85149;">
+                            Review failed: ${escapeHtml(review.summary || review.error)}
+                        </div>
+                    </div>
+                `;
+            }
+
+            const assessment = review.overall_assessment || 'COMMENT';
+            const riskLevel = review.risk_level || 'N/A';
+            let html = '';
+
+            // Summary Section
+            if (review.summary) {
+                html += `
+                    <div class="gh-summary-section">
+                        <div class="gh-summary-title">
+                            📝 Summary
+                        </div>
+                        <div class="gh-summary-content">
+                            ${escapeHtml(review.summary)}
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Potential Issues Section
+            if (review.potential_issues?.length > 0) {
+                html += `
+                    <div class="gh-summary-section">
+                        <div class="gh-summary-title">
+                            ⚠️ Potential Issues
+                        </div>
+                        <div class="gh-summary-content">
+                `;
+
+                review.potential_issues.forEach(issue => {
+                    const severity = issue.severity?.toLowerCase() || 'low';
+                    const severityClass = 'gh-severity-' + severity;
+                    const severityLabel = (issue.severity || 'INFO').toUpperCase();
+
+                    html += `
+                        <div class="gh-issue-item">
+                            <span class="gh-severity-badge ${severityClass}">${severityLabel}</span>
+                            <div style="flex: 1;">
+                                ${issue.file ? `<span class="gh-file-path">${escapeHtml(issue.file)}</span><br/>` : ''}
+                                <span style="color: #c9d1d9;">${escapeHtml(issue.description)}</span>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                html += `
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Suggestions Section
+            if (review.suggestions?.length > 0) {
+                html += `
+                    <div class="gh-summary-section">
+                        <div class="gh-summary-title">
+                            💡 Suggestions
+                        </div>
+                        <div class="gh-summary-content">
+                `;
+
+                review.suggestions.forEach(s => {
+                    html += `
+                        <div class="gh-issue-item">
+                            <span>💡</span>
+                            <div style="flex: 1;">
+                                ${s.file ? `<span class="gh-file-path">${escapeHtml(s.file)}</span><br/>` : ''}
+                                <span style="color: #c9d1d9;">${escapeHtml(s.suggestion)}</span>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                html += `
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Additional Notes
+            if (review.review_notes) {
+                html += `
+                    <div class="gh-summary-section">
+                        <div class="gh-summary-title">
+                            📋 Additional Notes
+                        </div>
+                        <div class="gh-summary-content">
+                            ${escapeHtml(review.review_notes)}
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Line-Level Comments (GitHub Copilot style)
+            if (review.line_comments?.length > 0) {
+                html += `
+                    <div class="gh-summary-section" style="background: transparent; border: none; padding: 0;">
+                        <div class="gh-summary-title" style="margin-bottom: 1rem;">
+                            💬 Line-Level Comments
+                        </div>
+                `;
+
+                review.line_comments.forEach(lc => {
+                    const typeIcon = lc.type === 'issue' ? '⚠️' : lc.type === 'suggestion' ? '💡' : '💬';
+                    const typeColor = lc.type === 'issue' ? '#f85149' : lc.type === 'suggestion' ? '#d29922' : '#58a6ff';
+
+                    html += `
+                        <div class="gh-review-card" style="margin-bottom: 1rem;">
+                            <div class="gh-review-header">
+                                <span class="file-icon">📄</span>
+                                <span style="color: #58a6ff;">${escapeHtml(lc.file || 'Unknown file')}</span>
+                                ${lc.line_start ? `<span style="margin-left: auto;">Comment on lines ${lc.line_start}${lc.line_end && lc.line_end !== lc.line_start ? ' to +' + lc.line_end : ''}</span>` : ''}
+                            </div>
+                            ${lc.code_snippet ? `
+                            <div class="gh-code-block">
+                                ${formatCodeSnippet(lc.code_snippet, lc.line_start)}
+                            </div>
+                            ` : ''}
+                            <div class="gh-ai-comment" style="margin: 0; border-radius: 0; border-top: 1px solid #30363d;">
+                                <div class="gh-ai-header" style="padding: 0.5rem 1rem;">
+                                    <div class="gh-ai-avatar" style="width: 24px; height: 24px; font-size: 0.75rem;">🤖</div>
+                                    <span class="gh-ai-name" style="font-size: 0.85rem;">AI Review</span>
+                                    <span class="gh-ai-badge" style="padding: 0.1rem 0.4rem; font-size: 0.65rem;">AI</span>
+                                </div>
+                                <div class="gh-ai-body" style="padding: 0.75rem 1rem;">
+                                    <span style="color: ${typeColor}; font-weight: 500;">${typeIcon}</span>
+                                    ${escapeHtml(lc.comment)}
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+
+                html += `</div>`;
+            }
+
+            // AI Comment Card (Overall Assessment)
+            html += `
+                <div class="gh-ai-comment">
+                    <div class="gh-ai-header">
+                        <div class="gh-ai-avatar">🤖</div>
+                        <span class="gh-ai-name">AI Review</span>
+                        <span class="gh-ai-badge">AI</span>
+                        <span class="gh-ai-time">just now</span>
+                    </div>
+                    <div class="gh-ai-body">
+                        <div style="display: flex; gap: 1rem; margin-bottom: 1rem;">
+                            <div style="padding: 0.75rem 1.25rem; background: #21262d; border-radius: 6px; text-align: center;">
+                                <div style="font-size: 0.75rem; color: #8b949e; margin-bottom: 0.25rem;">Assessment</div>
+                                <div style="font-size: 1.1rem; font-weight: 600; color: ${assessment === 'APPROVE' ? '#3fb950' : assessment === 'REQUEST_CHANGES' ? '#f85149' : '#58a6ff'};">
+                                    ${assessmentIcons[assessment] || '💬'} ${assessmentLabels[assessment] || assessment}
+                                </div>
+                            </div>
+                            <div style="padding: 0.75rem 1.25rem; background: #21262d; border-radius: 6px; text-align: center;">
+                                <div style="font-size: 0.75rem; color: #8b949e; margin-bottom: 0.25rem;">Risk Level</div>
+                                <div style="font-size: 1.1rem; font-weight: 600; color: ${riskLevel === 'HIGH' ? '#f85149' : riskLevel === 'MEDIUM' ? '#d29922' : '#3fb950'};">
+                                    ${riskLevel}
+                                </div>
+                            </div>
+                            ${review.code_quality?.score ? `
+                            <div style="padding: 0.75rem 1.25rem; background: #21262d; border-radius: 6px; text-align: center;">
+                                <div style="font-size: 0.75rem; color: #8b949e; margin-bottom: 0.25rem;">Quality</div>
+                                <div style="font-size: 1.1rem; font-weight: 600; color: #c9d1d9;">${review.code_quality.score}/10</div>
+                            </div>
+                            ` : ''}
+                        </div>
+                        <p style="margin: 0; color: #8b949e;">
+                            This PR has been reviewed by AI. ${review.potential_issues?.length ? `Found ${review.potential_issues.length} potential issue(s).` : 'No major issues found.'}
+                            ${review.suggestions?.length ? ` ${review.suggestions.length} suggestion(s) provided.` : ''}
+                        </p>
+                    </div>
+                    <div class="gh-ai-footer">
+                        <button class="gh-action-btn" onclick="copyReviewToClipboard(this)">
+                            📋 Copy Review
+                        </button>
+                        <div style="margin-left: auto; display: flex; gap: 0.5rem;">
+                            <button class="gh-feedback-btn" title="Helpful">👍</button>
+                            <button class="gh-feedback-btn" title="Not helpful">👎</button>
+                        </div>
+                        <div class="gh-copilot-note">
+                            <span>AI Review uses AI. Check for mistakes.</span>
+                        </div>
+                    </div>
+                </div>
+            `;
+
+            return html;
+        }
+
+        // Helper function to copy review content
+        function copyReviewToClipboard(btn) {
+            const reviewContent = document.getElementById('pr-review-content');
+            if (reviewContent) {
+                const text = reviewContent.innerText;
+                navigator.clipboard.writeText(text).then(() => {
+                    const originalText = btn.innerHTML;
+                    btn.innerHTML = '✅ Copied!';
+                    setTimeout(() => { btn.innerHTML = originalText; }, 2000);
+                });
+            }
+        }
+
+        // Helper function to format code snippet with line numbers and diff highlighting
+        function formatCodeSnippet(code, startLine = 1) {
+            if (!code) return '';
+
+            const lines = code.split('\n');
+            let lineNum = startLine || 1;
+
+            return lines.map(line => {
+                const isAdd = line.startsWith('+');
+                const isDel = line.startsWith('-');
+                const lineClass = isAdd ? 'gh-line-add' : isDel ? 'gh-line-del' : '';
+
+                // Clean the line for display (remove leading +/- for content)
+                const displayLine = (isAdd || isDel) ? line.substring(1) : line;
+                const displayNum = isAdd ? `+${lineNum}` : isDel ? `-${lineNum}` : lineNum;
+
+                const html = `
+                    <div class="gh-code-line ${lineClass}">
+                        <span class="gh-line-number">${displayNum}</span>
+                        <span class="gh-line-content">${escapeHtml(displayLine)}</span>
+                    </div>
+                `;
+
+                // Only increment line number for non-deletion lines
+                if (!isDel) lineNum++;
+
+                return html;
+            }).join('');
+        }
+
+        async function viewPRDetail(prId) {
+            // Show PR review details in the PR Review panel
+            const statusEl = document.getElementById('pr-review-status');
+            const resultEl = document.getElementById('pr-review-result');
+            const contentEl = document.getElementById('pr-review-content');
+
+            statusEl.style.display = 'block';
+            statusEl.innerHTML = '<span style="color: var(--accent);">📄 Loading review details...</span>';
+            resultEl.style.display = 'none';
+
+            try {
+                const [prRes, reviewsRes] = await Promise.all([
+                    fetch(`/prs/${prId}`),
+                    fetch(`/prs/${prId}/reviews`)
+                ]);
+
+                const prData = await prRes.json();
+                const reviewsData = await reviewsRes.json();
+
+                const pr = prData.pr;
+                const reviews = reviewsData.reviews;
+
+                let html = `
+                    <div style="background: var(--surface-light); padding: 1.5rem; border-radius: 12px; margin-bottom: 1.5rem;">
+                        <h3 style="margin: 0 0 0.5rem 0;">
+                            <span style="background: #10b981; color: white; padding: 0.2rem 0.5rem; border-radius: 4px; font-size: 0.75rem; margin-right: 0.5rem;">PR</span>
+                            <a href="${pr.pr_url}" target="_blank" style="color: var(--primary);">${escapeHtml(pr.title)}</a>
+                        </h3>
+                        <div style="color: var(--text-muted); font-size: 0.9rem;">
+                            <strong>${pr.repo}#${pr.pr_number}</strong> by ${pr.author_login} | 
+                            ${pr.head_ref} → ${pr.base_ref} | 
+                            <span style="color: #10b981;">+${pr.additions || 0}</span>/<span style="color: #ef4444;">-${pr.deletions || 0}</span>
+                            in ${pr.files_changed || 0} files
+                        </div>
+                    </div>
+                `;
+
+                if (reviews.length === 0) {
+                    html += `
+                        <p>No reviews yet for this PR.</p>
+                        <button class="btn" onclick="reReviewPR(${prId}, '${pr.pr_url}')">🔍 Review Now</button>
+                    `;
+                } else {
+                    html += `<h3>Reviews (${reviews.length})</h3>`;
+
+                    reviews.forEach((review, idx) => {
+                        const r = review.review;
+                        html += `
+                            <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.5rem; margin-bottom: 1rem;">
+                                <div style="display: flex; justify-content: space-between; margin-bottom: 1rem;">
+                                    <span style="color: var(--text-muted);">Review #${reviews.length - idx} - ${formatDateTime(review.created_at)}</span>
+                                    <span style="font-weight: 600; color: ${r.overall_assessment === 'APPROVE' ? '#10b981' : r.overall_assessment === 'REQUEST_CHANGES' ? '#ef4444' : '#3b82f6'};">
+                                        ${r.overall_assessment || 'N/A'}
+                                    </span>
+                                </div>
+                                ${formatPRReview({ title: pr.title, repo: pr.repo, number: pr.pr_number, author: pr.author_login, additions: pr.additions, deletions: pr.deletions, files_changed: pr.files_changed }, r)}
+                            </div>
+                        `;
+                    });
+                }
+
+                statusEl.style.display = 'none';
+                resultEl.style.display = 'block';
+                contentEl.innerHTML = html;
+
+                // Scroll to results
+                resultEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+            } catch (e) {
+                statusEl.innerHTML = `<span style="color: #ef4444;">❌ Error loading PR details: ${e}</span>`;
+            }
+        }
+
+        async function reReviewPR(prId, prUrl) {
+            // Re-review an existing PR
+            document.getElementById('pr-review-url').value = prUrl;
+            switchTab('pr-review');
+            submitPRReview();
+        }
+
+        function safeMarkdown(content) {
+            if (!content) return '';
+            if (Array.isArray(content)) {
+                content = content.join('\n\n');
+            }
+            if (typeof content !== 'string') content = String(content);
+            return DOMPurify.sanitize(marked.parse(content));
+        }
+
+        // Store current analysis globally for copy functionality
+        let CURRENT_ANALYSIS_DATA = null;
+
+        function copyImplementationPlan() {
+            if (!CURRENT_ANALYSIS_DATA) return;
+            const plan = CURRENT_ANALYSIS_DATA.implementation_plan || CURRENT_ANALYSIS_DATA.proposed_solution || '';
+            navigator.clipboard.writeText(plan).then(() => {
+                const btn = document.getElementById('btn-copy-plan');
+                const originalText = btn.innerHTML;
+                btn.innerHTML = '✅ Copied!';
+                setTimeout(() => btn.innerHTML = originalText, 2000);
+            }).catch(err => {
+                alert('Failed to copy: ' + err);
+            });
+        }
+
+        function renderIssueAnalysis(data) {
+            const issue = data.issue;
+            const analysis = data.analysis;
+            CURRENT_ANALYSIS_DATA = analysis; // Save for copy
+
+            // ... (keep header code same until Implementation Plan) ...
+
+            let html = `
+                <div style="background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 2rem; margin-bottom: 2rem; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);">
+                    <!-- Header -->
+                    <div style="border-bottom: 1px solid var(--border); padding-bottom: 1.5rem; margin-bottom: 1.5rem;">
+                        <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 0.5rem;">
+                             <h3 style="margin: 0; font-size: 1.5rem; line-height: 1.3;">
+                                <a href="${issue.url}" target="_blank" style="color: var(--text); text-decoration: none; border-bottom: 1px dotted var(--text-muted);">${escapeHtml(issue.title)}</a>
+                             </h3>
+                        </div>
+                        <div style="display: flex; gap: 0.8rem; align-items: center; margin-top: 0.5rem;">
+                             <span style="font-family: monospace; color: var(--text-muted); font-size: 1rem;">${escapeHtml(issue.repo)}#${issue.number}</span>
+                             ${analysis.type ? `<span style="background: var(--surface-light); border: 1px solid var(--border); color: var(--accent); padding: 0.2rem 0.6rem; border-radius: 20px; font-size: 0.8rem; font-weight: 600;">${analysis.type}</span>` : ''}
+                             ${analysis.severity ? `<span style="background: ${analysis.severity === 'HIGH' ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.15)'}; color: ${analysis.severity === 'HIGH' ? '#fca5a5' : '#93c5fd'}; padding: 0.2rem 0.6rem; border-radius: 20px; font-size: 0.8rem; font-weight: 600;">${analysis.severity} SEVERITY</span>` : ''}
+                        </div>
+                    </div>
+            `;
+
+            if (analysis.error) {
+                html += `<div style="background: rgba(239, 68, 68, 0.1); border: 1px solid #ef4444; color: #ef4444; padding: 1rem; border-radius: 8px;"><strong>Analysis Error:</strong> ${analysis.error}</div>`;
+            } else {
+                // Summary
+                html += `
+                    <div style="margin-bottom: 2rem;">
+                        <h4 style="margin: 0 0 0.8rem 0; color: var(--text-muted); text-transform: uppercase; font-size: 0.85rem; letter-spacing: 0.05em;">Summary</h4>
+                        <div style="font-size: 1.1rem; line-height: 1.6; color: var(--text);">
+                            ${safeMarkdown(analysis.summary || 'No summary provided.')}
+                        </div>
+                    </div>
+                `;
+
+                // Technical Analysis
+                html += `
+                    <div style="margin-bottom: 2rem; background: rgba(30, 41, 59, 0.5); border: 1px solid var(--border); border-radius: 8px; overflow: hidden;">
+                        <div style="background: rgba(59, 130, 246, 0.1); padding: 0.8rem 1.2rem; border-bottom: 1px solid var(--border); display: flex; align-items: center;">
+                            <span style="font-size: 1.2rem; margin-right: 0.5rem;">🧠</span>
+                            <strong style="color: #60a5fa; font-size: 1rem;">Technical Analysis & Root Cause</strong>
+                        </div>
+                        <div style="padding: 1.5rem; font-size: 1rem; line-height: 1.7; color: #e2e8f0;">
+                            ${safeMarkdown(analysis.technical_analysis || '')}
+                        </div>
+                    </div>
+                `;
+
+                // Implementation Plan
+                const plan = analysis.implementation_plan || analysis.proposed_solution || '';
+                html += `
+                    <div style="margin-bottom: 2rem; background: rgba(30, 41, 59, 0.5); border: 1px solid var(--border); border-radius: 8px; overflow: hidden;">
+                        <div style="background: rgba(16, 185, 129, 0.1); padding: 0.8rem 1.2rem; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between;">
+                            <div style="display: flex; align-items: center;">
+                                <span style="font-size: 1.2rem; margin-right: 0.5rem;">🛠</span>
+                                <strong style="color: #34d399; font-size: 1rem;">Implementation Plan</strong>
+                            </div>
+                            <button id="btn-copy-plan" class="btn btn-secondary" style="padding: 0.2rem 0.6rem; font-size: 0.8rem; display: flex; align-items: center; gap: 0.3rem;" onclick="copyImplementationPlan()">
+                                📋 Copy
+                            </button>
+                        </div>
+                        <div style="padding: 1.5rem; font-size: 1rem; line-height: 1.7; color: #e2e8f0;">
+                            ${safeMarkdown(plan)}
+                        </div>
+                    </div>
+                `;
+
+                // Metadata Grid
+                html += `<div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem;">`;
+
+                // Files
+                if (analysis.files_to_change && analysis.files_to_change.length > 0) {
+                    html += `
+                        <div>
+                            <strong style="display: block; margin-bottom: 0.8rem; color: var(--text-muted); font-size: 0.9rem;">📂 Files to Change</strong>
+                            <ul style="margin: 0; background: var(--bg-darker); padding: 1rem 1rem 1rem 2rem; border-radius: 8px; border: 1px solid var(--border); color: #94a3b8; font-family: monospace; font-size: 0.9rem;">
+                                ${analysis.files_to_change.map(f => `<li style="margin-bottom: 0.3rem;">${f}</li>`).join('')}
+                            </ul>
+                        </div>
+                     `;
+                }
+
+                // Checklist / Reproduction (Combined if exists)
+                const items = analysis.check_list || analysis.reproduction_steps || [];
+                if (items && items.length > 0) {
+                    html += `
+                        <div>
+                            <strong style="display: block; margin-bottom: 0.8rem; color: var(--text-muted); font-size: 0.9rem;">✅ Checklist / Steps</strong>
+                            <div style="background: var(--bg-darker); padding: 1rem; border-radius: 8px; border: 1px solid var(--border);">
+                                ${items.map(s => `
+                                    <div style="display: flex; align-items: start; margin-bottom: 0.5rem; color: var(--text);">
+                                        <input type="checkbox" disabled style="margin-top: 0.3rem; margin-right: 0.5rem;">
+                                        <span style="font-size: 0.95rem;">${s}</span>
+                                    </div>
+                                `).join('')}
+                            </div>
+                        </div>
+                     `;
+                }
+
+                html += `</div>`; // End grid
+            }
+
+            html += `</div>`;
+            return html;
+        }
+
+
+        function clearReviewResult() {
+            const resultEl = document.getElementById('pr-review-result');
+            const contentEl = document.getElementById('pr-review-content');
+            const statusEl = document.getElementById('pr-review-status');
+            const urlInput = document.getElementById('pr-review-url');
+
+            if (resultEl) resultEl.style.display = 'none';
+            if (contentEl) contentEl.innerHTML = '';
+            if (statusEl) {
+                statusEl.style.display = 'none';
+                statusEl.innerHTML = '';
+            }
+            if (urlInput) urlInput.value = '';
+        }
     </script>
 </body>
 

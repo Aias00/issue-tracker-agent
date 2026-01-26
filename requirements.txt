@@ -1,4 +1,9 @@
+psycopg2-binary
+pgvector
+langchain-openai
+langchain-postgres
 fastapi
-uvicorn[standard]
-requests
+uvicorn
 python-dotenv
+requests
+PyGithub

@@ -24,66 +24,159 @@ class AgentState(TypedDict):
     title: str
     body: str
     issue_url: str
+    local_repo_path: Optional[str] # New field
     
     messages: Annotated[List[BaseMessage], operator.add]
     analysis: Optional[Dict[str, Any]]
     error: Optional[str]
     retry_count: int
     architecture_plan: Optional[str]
-    should_analyze: Optional[bool]  # AI triage result
-    bug_root_cause: Optional[str]  # Bug root cause analysis
+    should_analyze: Optional[bool]
+    bug_root_cause: Optional[str]
+    code_context: Optional[str] # New field
 
-def create_langchain_client(cfg: Config):
-    llm_cfg = cfg.llm
-    if not llm_cfg.base_url:
-        return None
-
-    return ChatOpenAI(
-        base_url=llm_cfg.base_url,
-        api_key=llm_cfg.api_key or "dummy", # langchain might require non-empty key
-        model=llm_cfg.model,
-        temperature=0
-    )
-
-def triage_node(state: AgentState, llm: ChatOpenAI):
-    """Quick AI triage to determine if issue needs detailed analysis"""
-    logger.info(f"Triaging issue: {state['title'][:50]}")
+def retrieve_context_node(state: AgentState):
+    """Retrieve code context using vector search if available, fallback to grep"""
+    path = state.get("local_repo_path")
     
-    prompt = f"""
-    You are a GitHub issue triage assistant. Quickly determine if this issue needs detailed AI analysis.
-    
-    Title: {state['title']}
-    Body: {state['body'][:500]}
-    
-    Skip analysis for:
-    - Simple release/version/package requests
-    - Very short or unclear issues
-    - Spam or off-topic content
-    
-    Respond with ONLY "YES" if it needs analysis, or "NO" if it should be skipped.
-    """
-    
+    # Try to get from global memory store if available
     try:
-        response = llm.invoke([HumanMessage(content=prompt)])
-        decision = response.content.strip().upper()
-        should_analyze = decision == "YES"
-        
-        logger.info(f"Triage decision: {'ANALYZE' if should_analyze else 'SKIP'}")
-        return {
-            "should_analyze": should_analyze,
-            "messages": [response]
-        }
-    except Exception as e:
-        logger.error(f"Triage failed: {e}, defaulting to analyze")
-        return {"should_analyze": True}  # Default to analyzing on error
+        from app.web.server import MEMORY_STORE
+        memory_store = MEMORY_STORE
+    except:
+        memory_store = None
+    
+    if not path:
+        logger.info("No local repo path provided, skipping context retrieval")
+        return {"code_context": None}
+    
+    import os
+    import subprocess
+    
+    if not os.path.exists(path):
+        logger.warning(f"Local path not found: {path}")
+        return {"code_context": f"Error: Local path {path} not found"}
+
+    # Extract keywords from title and body
+    keywords = re.sub(r'[^\w\s]', '', state['title']).split()
+    keywords.extend(re.sub(r'[^\w\s]', '', state['body'][:200]).split())
+    keywords = [k for k in keywords if len(k) > 3 and k.lower() not in ['bug', 'feature', 'issue', 'request', 'fail', 'error', 'title']]
+    keywords = list(set(keywords))[:5]  # Unique top 5
+    
+    if not keywords:
+        return {"code_context": "No specific keywords found for search."}
+
+    context_parts = []
+    
+    # Strategy 1: Vector Search (if memory store is available and has embeddings)
+    if memory_store and hasattr(memory_store, 'embedding_function') and memory_store.embedding_function:
+        try:
+            logger.info("Using vector search for context retrieval")
+            query_text = f"{state['title']} {state['body'][:500]}"
+            query_embedding = memory_store.embed_text(query_text)
+            
+            results = memory_store.search_code_embeddings(
+                query_embedding=query_embedding,
+                repo=state['repo'],
+                limit=5
+            )
+            
+            if results:
+                vector_context = "**Vector Search Results:**\n"
+                for i, result in enumerate(results, 1):
+                    similarity = result.get('similarity', 0)
+                    if similarity > 0.5:  # Only include relevant results
+                        vector_context += f"\n{i}. {result['file_path']} (similarity: {similarity:.2f})\n"
+                        vector_context += f"```\n{result['chunk_text'][:500]}...\n```\n"
+                
+                if len(vector_context) > 100:
+                    context_parts.append(vector_context)
+                    logger.info(f"Found {len(results)} relevant code chunks via vector search")
+        except Exception as e:
+            logger.warning(f"Vector search failed, falling back to grep: {e}")
+    
+    # Strategy 2: Grep fallback (if vector search didn't find enough or failed)
+    if not context_parts:
+        logger.info("Using grep search for context retrieval")
+        try:
+            # File name search
+            found_files = []
+            for root, dirs, files in os.walk(path):
+                if '.git' in dirs: dirs.remove('.git')
+                if '__pycache__' in dirs: dirs.remove('__pycache__')
+                if 'node_modules' in dirs: dirs.remove('node_modules')
+                
+                for file in files:
+                    for k in keywords:
+                        if k.lower() in file.lower():
+                            full_p = os.path.join(root, file)
+                            rel_p = os.path.relpath(full_p, path)
+                            found_files.append(rel_p)
+                            break
+                if len(found_files) > 5: break
+            
+            if found_files:
+                context_parts.append(f"**Matching Files:**\n" + "\n".join(found_files))
+                
+        except Exception as e:
+            logger.error(f"File search failed: {e}")
+
+        # Grep content search
+        try:
+            search_term = keywords[0] if keywords else ""
+            if search_term:
+                cmd = ["grep", "-r", "-i", "-n", "-I", "-C", "2", "--exclude-dir=.*", "--exclude-dir=node_modules", search_term, "."]
+                proc = subprocess.run(cmd, cwd=path, capture_output=True, text=True, timeout=5)
+                output = proc.stdout
+                if len(output) > 2000:
+                    output = output[:2000] + "...(truncated)"
+                
+                if output.strip():
+                    context_parts.append(f"**Grep Search Results for '{search_term}':**\n{output}")
+        except Exception as e:
+            logger.error(f"Grep failed: {e}")
+    
+    # Strategy 3: Search similar past analyses
+    if memory_store and hasattr(memory_store, 'embedding_function') and memory_store.embedding_function:
+        try:
+            query_text = f"{state['title']} {state['body'][:300]}"
+            query_embedding = memory_store.embed_text(query_text)
+            
+            similar_analyses = memory_store.search_similar_analyses(
+                query_embedding=query_embedding,
+                limit=3
+            )
+            
+            if similar_analyses:
+                history_context = "\n**Similar Past Issues:**\n"
+                for i, analysis in enumerate(similar_analyses, 1):
+                    similarity = analysis.get('similarity', 0)
+                    if similarity > 0.6:  # Only highly similar cases
+                        history_context += f"\n{i}. {analysis['issue_title']} (similarity: {similarity:.2f})\n"
+                        history_context += f"   Category: {analysis.get('issue_category', 'N/A')}\n"
+                        history_context += f"   Solution: {analysis['solution_summary'][:200]}...\n"
+                
+                if len(history_context) > 100:
+                    context_parts.append(history_context)
+                    logger.info(f"Found {len(similar_analyses)} similar past analyses")
+        except Exception as e:
+            logger.warning(f"Similar analysis search failed: {e}")
+
+    final_context = "\n\n".join(context_parts) if context_parts else "No relevant context found."
+    logger.info(f"Retrieved context length: {len(final_context)}")
+    return {"code_context": final_context}
+
 
 def analyze_node(state: AgentState, llm: ChatOpenAI):
     logger.info(f"Analyzing issue for {state['repo']}")
     
-    # If this is a retry, we might want to add the error to the prompt
     error_context = ""
     if state.get("error"):
         error_context = f"\n\nPREVIOUS ATTEMPT ALLAYED. ERROR: {state['error']}\nPlease fix the JSON format."
+
+    code_context_section = ""
+    if state.get("code_context"):
+        code_context_section = f"\n\nLocal Code Context:\n{state['code_context']}\n"
 
     prompt = f"""
     You are an expert software engineer analyzing GitHub issues.
@@ -92,6 +185,7 @@ def analyze_node(state: AgentState, llm: ChatOpenAI):
     Title: {state['title']}
     Body:
     {state['body']}
+    {code_context_section}
     {error_context}
     
     Please analyze this issue and provide a structured JSON response with the following fields:
@@ -106,7 +200,6 @@ def analyze_node(state: AgentState, llm: ChatOpenAI):
     messages = [HumanMessage(content=prompt)]
     try:
         response = llm.invoke(messages)
-        content = response.content
         return {
             "messages": [response], 
             "analysis": None, 
@@ -117,34 +210,11 @@ def analyze_node(state: AgentState, llm: ChatOpenAI):
         logger.error(f"LLM invoke failed: {e}")
         return {"error": str(e), "retry_count": state["retry_count"] + 1}
 
-def parse_node(state: AgentState):
-    """Parses the last message content into JSON"""
-    if not state["messages"]:
-        return {"error": "No messages to parse"}
-        
-    last_message = state["messages"][-1]
-    content = last_message.content
-    
-    try:
-        match = re.search(r"\{.*\}", content, re.DOTALL)
-        if match:
-            json_str = match.group(0)
-            analysis = json.loads(json_str)
-            # basic validation
-            required = ["summary", "priority", "category"]
-            if not all(k in analysis for k in required):
-                return {"error": f"Missing required fields. Got: {list(analysis.keys())}"}
-                
-            return {"analysis": analysis, "error": None}
-        else:
-             return {"error": "No JSON object found in response"}
-    except Exception as e:
-        return {"error": f"JSON parse error: {str(e)}"}
-
 def architect_node(state: AgentState, llm: ChatOpenAI):
     """Generates an architectural plan for coding tasks"""
     logger.info("Executing Architect Node")
     analysis = state.get("analysis", {})
+    code_context_section = f"\nCode Context:\n{state.get('code_context', 'N/A')}" if state.get('code_context') else ""
     
     prompt = f"""
     You are a Senior System Architect.
@@ -157,6 +227,7 @@ def architect_node(state: AgentState, llm: ChatOpenAI):
     Origin Issue:
     Title: {state['title']}
     Body: {state['body']}
+    {code_context_section}
     
     The initial analysis suggests this is a coding task. 
     Please provide a high-level architectural design or implementation plan.
@@ -181,12 +252,14 @@ def bug_analysis_node(state: AgentState, llm: ChatOpenAI):
     logger.info(f"Analyzing bug root cause for: {state['title'][:50]}")
     
     analysis = state.get("analysis", {})
+    code_context_section = f"\nCode Context:\n{state.get('code_context', 'N/A')}" if state.get('code_context') else ""
     
     prompt = f"""
-    You are analyzing a bug report. Provide a root cause analysis.
+    You are a analyzing a bug report. Provide a root cause analysis.
     
     Issue Title: {state['title']}
     Issue Body: {state['body']}
+    {code_context_section}
     
     Initial Analysis:
     - Category: {analysis.get('category', 'Unknown')}
@@ -211,132 +284,12 @@ def bug_analysis_node(state: AgentState, llm: ChatOpenAI):
         logger.error(f"Bug analysis node failed: {e}")
         return {"bug_root_cause": "Bug analysis failed."}
 
-def should_retry(state: AgentState):
-    if state["analysis"]:
-        return "continue" # Go to next check
-    if state["retry_count"] >= 2: # Max 2 retries
-        return "end"
-    return "analyze"
-
-def should_architect(state: AgentState):
-    """Decide if we need an architect"""
-    analysis = state.get("analysis", {})
-    category = analysis.get("category", "").lower()
-    priority = analysis.get("priority", "").lower()
-    
-    # Trigger for Features or High priority items (bugs already analyzed)
-    if category == "feature" or priority == "high":
-        return "architect"
-    return "end"
-
-def should_proceed_with_analysis(state: AgentState):
-    """Check triage result to decide if we should analyze"""
-    if state.get("should_analyze") is False:
-        return "skip"
-    return "analyze"
-
-def should_analyze_bug(state: AgentState):
-    """Check if this is a bug that needs root cause analysis"""
-    analysis = state.get("analysis", {})
-    category = analysis.get("category", "").lower()
-    
-    if category == "bug":
-        return "bug_analysis"
-    # If not a bug, check if we need architect
-    priority = analysis.get("priority", "").lower()
-    if category == "feature" or priority == "high":
-        return "architect"
-    return "end"
-
 # --- Graph DSL Support ---
 
-# Current active graph definition (JSON)
+# Updated graph to include retrieve_context
 CURRENT_GRAPH_CONFIG = {
     "nodes": [
-        {"id": "analyze", "type": "function", "function": "analyze_node"},
-        {"id": "parse", "type": "function", "function": "parse_node"},
-        {"id": "architect", "type": "function", "function": "architect_node"}
-    ],
-    "edges": [
-        {"source": "analyze", "target": "parse"}
-    ],
-    "conditional_edges": [
-        {
-            "source": "parse",
-            "condition": "should_retry",
-            "paths": {
-                "end": "__end__",
-                "continue": "check_architect",
-                "analyze": "analyze"
-            }
-        },
-        {
-            # Virtual node for check, actually handled by conditional edge from parse logic?
-            # LangGraph conditional edges are typically strictly from a node.
-            # To chaining conditions, we might need a dummy node or let 'parse' output determine next.
-            # Here I used "continue" path from should_retry to point to a new conditional check.
-            # But conditional edges come FROM a node. 
-            # So 'parse' node output goes to 'should_retry' condition.
-            # The 'should_retry' condition returns a path key.
-            # If we want to chain, we usually insert a passthrough node.
-            # Let's add a simple 'router' node or just handle it.
-            # To make it simple for the user DSL, let's assume 'continue' goes to 'router'.
-            "source": "router", 
-            "condition": "should_architect",
-            "paths": {
-                "architect": "architect",
-                "end": "__end__"
-            }
-        }
-    ],
-    # Wait, the above JSON structure for conditional edges is List[Dict] where each Dict describes one conditional edge.
-    # We need a node to attach 'should_architect' to.
-    # Let's add a light-weight 'router' node that just passes state.
-    "entry_point": "analyze"
-}
-
-# Actually, to properly support the flow analyze -> parse -> (retry?) -> (architect?) -> end
-# using standard nodes is cleaner.
-def router_node(state: AgentState):
-    return {} # No-op, just for routing
-
-CURRENT_GRAPH_CONFIG = {
-    "nodes": [
-        {"id": "analyze", "type": "function", "function": "analyze_node"},
-        {"id": "parse", "type": "function", "function": "parse_node"},
-        {"id": "architect", "type": "function", "function": "architect_node"}
-    ],
-    "edges": [
-        {"source": "analyze", "target": "parse"},
-        {"source": "architect", "target": "__end__"}
-    ],
-    "conditional_edges": [
-        {
-            "source": "parse",
-            "condition": "should_retry",
-            "paths": {
-                "end": "__end__", # Retry failed
-                "continue": "architect_check", # Success, check if we need architect
-                "analyze": "analyze" # Retry
-            }
-        },
-        {
-            "source": "architect_check", # We need to map this in GraphBuilder to a real node/condition
-            # Wait, 'architect_check' is not a node yet.
-            # Let's use a router node called 'routing'
-            "condition": "should_architect",
-            "paths": {
-                "architect": "architect",
-                "end": "__end__"
-            }
-        }
-    ],
-    "entry_point": "analyze"
-}
-
-# Final graph configuration with AI triage and bug analysis
-CURRENT_GRAPH_CONFIG = {
-    "nodes": [
+        {"id": "retrieve_context", "type": "function", "function": "retrieve_context_node"},
         {"id": "triage", "type": "function", "function": "triage_node"},
         {"id": "analyze", "type": "function", "function": "analyze_node"},
         {"id": "parse", "type": "function", "function": "parse_node"},
@@ -345,6 +298,7 @@ CURRENT_GRAPH_CONFIG = {
         {"id": "architect", "type": "function", "function": "architect_node"}
     ],
     "edges": [
+        {"source": "retrieve_context", "target": "triage"}, # Start retrieval first, then triage
         {"source": "analyze", "target": "parse"},
         {"source": "bug_analysis", "target": "architect"}
     ],
@@ -376,55 +330,13 @@ CURRENT_GRAPH_CONFIG = {
             }
         }
     ],
-    "entry_point": "triage"
+    "entry_point": "retrieve_context"
 }
 
 def get_current_graph_config() -> Dict[str, Any]:
     return CURRENT_GRAPH_CONFIG
 
-def update_current_graph_config(config: Dict[str, Any]):
-    global CURRENT_GRAPH_CONFIG, _CACHED_GRAPH
-    CURRENT_GRAPH_CONFIG = config
-    _CACHED_GRAPH = None  # Invalidate cache when config changes
-    logger.info("Graph configuration updated, cache invalidated")
-
-# Cache for compiled graph
-_CACHED_GRAPH = None
-_CACHED_GRAPH_CONFIG_HASH = None
-_CACHED_LLM_MODEL = None
-
-def _get_config_hash(config: Dict[str, Any]) -> str:
-    """Generate a hash of the config for cache invalidation"""
-    import hashlib
-    import json
-    config_str = json.dumps(config, sort_keys=True)
-    return hashlib.md5(config_str.encode()).hexdigest()
-
-def get_or_build_graph(llm: ChatOpenAI, config: Dict[str, Any]):
-    """Get cached graph or build a new one if config/llm changed"""
-    global _CACHED_GRAPH, _CACHED_GRAPH_CONFIG_HASH, _CACHED_LLM_MODEL
-    
-    config_hash = _get_config_hash(config)
-    current_model = llm.model_name
-    
-    # Check if we can use cached graph
-    if (_CACHED_GRAPH is not None and 
-        _CACHED_GRAPH_CONFIG_HASH == config_hash and
-        _CACHED_LLM_MODEL == current_model):
-        logger.debug("Using cached LangGraph workflow")
-        return _CACHED_GRAPH
-    
-    # Build new graph
-    logger.info(f"Building LangGraph workflow with {len(config.get('nodes', []))} nodes")
-    builder = GraphBuilder(llm)
-    app = builder.build(config)
-    
-    # Cache it
-    _CACHED_GRAPH = app
-    _CACHED_GRAPH_CONFIG_HASH = config_hash
-    _CACHED_LLM_MODEL = current_model
-    
-    return app
+# ... (cache helpers) ...
 
 class GraphBuilder:
     def __init__(self, llm: ChatOpenAI):
@@ -435,63 +347,10 @@ class GraphBuilder:
             "parse_node": parse_node,
             "router_node": router_node,
             "bug_analysis_node": lambda s: bug_analysis_node(s, self.llm),
-            "architect_node": lambda s: architect_node(s, self.llm)
+            "architect_node": lambda s: architect_node(s, self.llm),
+            "retrieve_context_node": retrieve_context_node
         }
-        self.conditions = {
-            "should_retry": should_retry,
-            "should_architect": should_architect,
-            "should_proceed_with_analysis": should_proceed_with_analysis,
-            "should_analyze_bug": should_analyze_bug
-        }
-
-    def build(self, config: Dict[str, Any]):
-        workflow = StateGraph(AgentState)
-        
-        # Add Nodes
-        for node in config.get("nodes", []):
-            func_name = node.get("function")
-            if func_name in self.functions:
-                workflow.add_node(node["id"], self.functions[func_name])
-            else:
-                logger.warning(f"Unknown function {func_name} for node {node['id']}")
-
-        # Add Edges
-        for edge in config.get("edges", []):
-            workflow.add_edge(edge["source"], edge["target"])
-
-        # Add Conditional Edges
-        for c_edge in config.get("conditional_edges", []):
-            cond_name = c_edge.get("condition")
-            if cond_name in self.conditions:
-                paths = c_edge.get("paths", {})
-                # Replace string "__end__" with END constant
-                clean_paths = {k: (END if v == "__end__" else v) for k, v in paths.items()}
-                workflow.add_conditional_edges(
-                    c_edge["source"],
-                    self.conditions[cond_name],
-                    clean_paths
-                )
-
-        # Set Entry Point
-        entry = config.get("entry_point")
-        if entry:
-            workflow.set_entry_point(entry)
-            
-        return workflow.compile()
-
-# ... (AgentState definition remains)
-
-def create_langchain_client(cfg: Config):
-    llm_cfg = cfg.llm
-    if not llm_cfg.base_url:
-        return None
-
-    return ChatOpenAI(
-        base_url=llm_cfg.base_url,
-        api_key=llm_cfg.api_key or "dummy", # langchain might require non-empty key
-        model=llm_cfg.model,
-        temperature=0
-    )
+    # ...
 
 # Updated run_issue_agent to use dynamic builder
 def run_issue_agent(
@@ -499,7 +358,8 @@ def run_issue_agent(
     repo: str,
     title: str,
     body: str,
-    issue_url: str
+    issue_url: str,
+    local_repo_path: Optional[str] = None
 ) -> AgentResult:
     
     llm = create_langchain_client(cfg)
@@ -525,16 +385,17 @@ def run_issue_agent(
     # Use GraphBuilder with caching
     app = get_or_build_graph(llm, CURRENT_GRAPH_CONFIG)
     
-    # ... execution logic same as before ...
     initial_state = {
         "repo": repo,
         "title": title,
         "body": body,
         "issue_url": issue_url,
+        "local_repo_path": local_repo_path,
         "messages": [],
         "analysis": None,
         "error": None,
-        "retry_count": 0
+        "retry_count": 0,
+        "code_context": None
     }
     
     final_state = app.invoke(initial_state)
@@ -555,6 +416,27 @@ def run_issue_agent(
     # Merge bug root cause analysis if available
     if final_state.get("bug_root_cause"):
         analysis["bug_root_cause"] = final_state["bug_root_cause"]
+    
+    # Save to analysis memory (episodic memory) if successful
+    if analysis.get("category") and analysis.get("summary"):
+        try:
+            from app.web.server import MEMORY_STORE
+            if MEMORY_STORE and hasattr(MEMORY_STORE, 'embedding_function') and MEMORY_STORE.embedding_function:
+                # Create embedding for this analysis
+                memory_text = f"{title} {analysis.get('summary', '')} {analysis.get('bug_root_cause', '')[:500]}"
+                embedding = MEMORY_STORE.embed_text(memory_text)
+                
+                # Save to memory (we don't have issue_id yet, will be set later)
+                MEMORY_STORE.insert_analysis_memory(
+                    issue_id=None,  # Will be updated later when we have the DB ID
+                    issue_title=title,
+                    issue_category=analysis.get("category"),
+                    solution_summary=analysis.get("bug_root_cause") or analysis.get("architecture_plan") or analysis.get("summary"),
+                    embedding=embedding
+                )
+                logger.info("Saved analysis to episodic memory")
+        except Exception as e:
+            logger.warning(f"Failed to save analysis memory: {e}")
         
     card_data = {
         "title": f"[{repo}] {title}",

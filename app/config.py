@@ -26,11 +26,15 @@ def _get_int(name: str, default: int) -> int:
         raise RuntimeError(f"Invalid int env var {name}={v!r}") from e
 
 
+from typing import Dict
+
 @dataclass(frozen=True)
 class GitHubConfig:
     token: str
     repos: str
     per_repo_fetch_limit: int
+    repo_paths: Dict[str, str] = None
+    default_repos_dir: str = "./repos"
 
 
 @dataclass(frozen=True)
@@ -81,7 +85,7 @@ class LLMConfig:
 
 @dataclass(frozen=True)
 class AppConfig:
-    sqlite_path: str
+    database_url: str
 
 
 @dataclass(frozen=True)
@@ -96,9 +100,8 @@ class Config:
 def load_config_from_env() -> Config:
     github_token = os.getenv("GITHUB_TOKEN", "")
     repos = os.getenv("REPOS", "")
-    sqlite_path = os.getenv("SQLITE_PATH", "data/issue_tracker.db")
-    if not sqlite_path:  # Handle empty string
-        sqlite_path = "data/issue_tracker.db"
+    database_url = os.getenv("DATABASE_URL", "postgresql://localhost/issue_tracker")
+    default_repos_dir = os.getenv("DEFAULT_REPOS_DIR", os.path.join(os.getcwd(), "repos"))
 
     llm_base_url = os.getenv("LLM_BASE_URL", "")
     llm_api_key = os.getenv("LLM_API_KEY", "")
@@ -113,11 +116,20 @@ def load_config_from_env() -> Config:
     max_title_chars = _get_int("MAX_TITLE_CHARS", 100)
     max_missing_items = _get_int("MAX_MISSING_ITEMS", 10)
 
+    import json
+    repo_paths_str = os.getenv("REPO_PATHS", "{}")
+    try:
+        repo_paths = json.loads(repo_paths_str)
+    except Exception:
+        repo_paths = {}
+
     return Config(
         github=GitHubConfig(
             token=github_token,
             repos=repos,
             per_repo_fetch_limit=per_repo_fetch_limit,
+            repo_paths=repo_paths,
+            default_repos_dir=default_repos_dir,
         ),
         agent=AgentConfig(
             limits=AgentLimitsConfig(
@@ -145,7 +157,7 @@ def load_config_from_env() -> Config:
             model=llm_model,
         ),
         app=AppConfig(
-            sqlite_path=sqlite_path,
+            database_url=database_url,
         ),
     )
 
